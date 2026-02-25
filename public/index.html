@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BPMN Generator</title>
+  <script src="/vendor/bpmn-js/bpmn-viewer.production.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f6fa;
+      color: #333;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background: #1a73e8;
+      color: white;
+      padding: 16px 24px;
+      font-size: 1.25rem;
+      font-weight: 600;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+    }
+
+    .container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 0;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+      background: white;
+      width: 380px;
+      min-width: 280px;
+      border-right: 1px solid #e0e0e0;
+      overflow-y: auto;
+    }
+
+    .panel h2 {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    textarea {
+      flex: 1;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.8rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 10px;
+      resize: vertical;
+      min-height: 300px;
+      line-height: 1.5;
+      outline: none;
+    }
+    textarea:focus { border-color: #1a73e8; }
+
+    .actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+
+    #generateBtn {
+      background: #1a73e8;
+      color: white;
+      flex: 1;
+    }
+    #generateBtn:hover { background: #1558b0; }
+
+    #resetBtn {
+      background: #f1f3f4;
+      color: #333;
+    }
+    #resetBtn:hover { background: #e0e0e0; }
+
+    #downloadBtn {
+      background: #34a853;
+      color: white;
+    }
+    #downloadBtn:hover { background: #2d8f47; }
+    #downloadBtn:disabled { background: #ccc; cursor: default; }
+
+    .error-box {
+      margin-top: 10px;
+      padding: 10px;
+      background: #fdecea;
+      color: #c62828;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      display: none;
+    }
+
+    .viewer-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #fafafa;
+    }
+
+    #canvas {
+      width: 100%;
+      height: 100%;
+    }
+
+    .placeholder {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      color: #aaa;
+      pointer-events: none;
+    }
+    .placeholder svg { margin-bottom: 12px; }
+    .placeholder p { font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <header>⚙️ BPMN Generator</header>
+
+  <div class="container">
+    <div class="panel">
+      <h2>Prozessdefinition (JSON)</h2>
+      <textarea id="inputJson" spellcheck="false"></textarea>
+
+      <div class="actions">
+        <button id="generateBtn">▶ Diagramm erzeugen</button>
+        <button id="resetBtn">↺ Beispiel laden</button>
+        <button id="downloadBtn" disabled>⬇ BPMN herunterladen</button>
+      </div>
+      <div id="errorBox" class="error-box"></div>
+    </div>
+
+    <div class="viewer-area">
+      <div id="canvas"></div>
+      <div class="placeholder" id="placeholder">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M8 12h8M12 8v8"/>
+        </svg>
+        <p>Geben Sie eine Prozessdefinition ein und klicken Sie auf „Diagramm erzeugen".</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const EXAMPLE = {
+      name: "Bestellprozess",
+      elements: [
+        { id: "start1",    type: "startEvent",       name: "Bestellung eingang" },
+        { id: "task1",     type: "userTask",          name: "Bestellung prüfen" },
+        { id: "gw1",       type: "exclusiveGateway",  name: "Gültig?" },
+        { id: "task2",     type: "serviceTask",       name: "Bestellung bestätigen" },
+        { id: "task3",     type: "task",              name: "Ablehnung benachrichtigen" },
+        { id: "end1",      type: "endEvent",          name: "Ende" }
+      ],
+      flows: [
+        { id: "flow1", source: "start1", target: "task1" },
+        { id: "flow2", source: "task1",  target: "gw1" },
+        { id: "flow3", source: "gw1",    target: "task2",  name: "Ja" },
+        { id: "flow4", source: "gw1",    target: "task3",  name: "Nein" },
+        { id: "flow5", source: "task2",  target: "end1" },
+        { id: "flow6", source: "task3",  target: "end1" }
+      ]
+    };
+
+    const viewer = new BpmnJS({ container: '#canvas' });
+
+    let lastBpmnXml = null;
+
+    const inputJson  = document.getElementById('inputJson');
+    const errorBox   = document.getElementById('errorBox');
+    const placeholder = document.getElementById('placeholder');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    function showError(msg) {
+      errorBox.textContent = msg;
+      errorBox.style.display = 'block';
+    }
+
+    function clearError() {
+      errorBox.style.display = 'none';
+      errorBox.textContent = '';
+    }
+
+    async function generate() {
+      clearError();
+      let data;
+      try {
+        data = JSON.parse(inputJson.value);
+      } catch (e) {
+        showError('Ungültiges JSON: ' + e.message);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          showError(err.error || 'Unbekannter Fehler');
+          return;
+        }
+
+        const xml = await res.text();
+        await viewer.importXML(xml);
+        viewer.get('canvas').zoom('fit-viewport');
+        placeholder.style.display = 'none';
+        lastBpmnXml = xml;
+        downloadBtn.disabled = false;
+      } catch (e) {
+        showError('Fehler beim Erzeugen des Diagramms: ' + e.message);
+      }
+    }
+
+    document.getElementById('generateBtn').addEventListener('click', generate);
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      inputJson.value = JSON.stringify(EXAMPLE, null, 2);
+      clearError();
+    });
+
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      if (!lastBpmnXml) return;
+      const blob = new Blob([lastBpmnXml], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'diagram.bpmn';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Load example on startup
+    inputJson.value = JSON.stringify(EXAMPLE, null, 2);
+  </script>
+</body>
+</html>
