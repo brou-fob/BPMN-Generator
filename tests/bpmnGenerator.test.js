@@ -237,6 +237,9 @@ describe('changeElementType()', () => {
     const xml = generate(updated);
     expect(xml).toContain('bpmn:userTask');
     expect(xml).not.toMatch(/bpmn:task[\s\/>]/);
+  });
+});
+
 /**
  * Helper: extract the dc:Bounds y value for a given element id from BPMN XML.
  */
@@ -336,5 +339,191 @@ describe('parallel flow layout', () => {
     const centreEnd = yEnd + 36 / 2;     // endEvent height / 2
     expect(centreStart).toBe(centreTask);
     expect(centreTask).toBe(centreEnd);
+  });
+});
+
+describe('intermediate and boundary events', () => {
+  const INTERMEDIATE_DATA = {
+    name: 'Intermediate Event Process',
+    elements: [
+      { id: 'start1', type: 'startEvent', name: 'Start' },
+      { id: 'timer1', type: 'intermediateTimerEvent', name: 'Warten' },
+      { id: 'end1', type: 'endEvent', name: 'Ende' },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1', target: 'timer1' },
+      { id: 'f2', source: 'timer1', target: 'end1' },
+    ],
+  };
+
+  test('intermediateTimerEvent generates intermediateCatchEvent with timerEventDefinition', () => {
+    const xml = generate(INTERMEDIATE_DATA);
+    expect(xml).toContain('<bpmn:intermediateCatchEvent id="timer1"');
+    expect(xml).toContain('<bpmn:timerEventDefinition />');
+    expect(xml).toContain('</bpmn:intermediateCatchEvent>');
+  });
+
+  test('intermediateMessageEvent generates intermediateCatchEvent with messageEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateMessageEvent', name: 'Msg' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:intermediateCatchEvent id="e1"');
+    expect(xml).toContain('<bpmn:messageEventDefinition />');
+  });
+
+  test('intermediateSignalEvent generates intermediateCatchEvent with signalEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateSignalEvent', name: 'Sig' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:signalEventDefinition />');
+  });
+
+  test('intermediateConditionalEvent generates intermediateCatchEvent with conditionalEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateConditionalEvent', name: 'Cond' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:conditionalEventDefinition />');
+  });
+
+  test('intermediateThrowEvent generates intermediateThrowEvent without event definition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateThrowEvent', name: 'Throw' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:intermediateThrowEvent id="e1"');
+    expect(xml).not.toContain('<bpmn:timerEventDefinition');
+  });
+
+  test('intermediateMessageThrowEvent generates intermediateThrowEvent with messageEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateMessageThrowEvent', name: 'MsgThrow' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:intermediateThrowEvent id="e1"');
+    expect(xml).toContain('<bpmn:messageEventDefinition />');
+  });
+
+  test('intermediateSignalThrowEvent generates intermediateThrowEvent with signalEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateSignalThrowEvent', name: 'SigThrow' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:signalEventDefinition />');
+  });
+
+  test('intermediateEscalationEvent generates intermediateThrowEvent with escalationEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateEscalationEvent', name: 'Esc' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:escalationEventDefinition />');
+  });
+
+  test('intermediateLinkEvent generates intermediateThrowEvent with linkEventDefinition', () => {
+    const data = {
+      name: 'P', elements: [{ id: 'e1', type: 'intermediateLinkEvent', name: 'Link' }], flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:linkEventDefinition />');
+  });
+
+  test('boundaryTimerEvent generates boundaryEvent with timerEventDefinition and attachedToRef', () => {
+    const data = {
+      name: 'P',
+      elements: [
+        { id: 'task1', type: 'task', name: 'Task' },
+        { id: 'b1', type: 'boundaryTimerEvent', name: 'Timeout', attachedToRef: 'task1' },
+      ],
+      flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:boundaryEvent id="b1"');
+    expect(xml).toContain('attachedToRef="task1"');
+    expect(xml).toContain('<bpmn:timerEventDefinition />');
+    expect(xml).toContain('</bpmn:boundaryEvent>');
+  });
+
+  test('boundaryErrorEvent generates boundaryEvent with errorEventDefinition', () => {
+    const data = {
+      name: 'P',
+      elements: [
+        { id: 'task1', type: 'task', name: 'Task' },
+        { id: 'b1', type: 'boundaryErrorEvent', name: 'Error', attachedToRef: 'task1' },
+      ],
+      flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:errorEventDefinition />');
+  });
+
+  test('boundaryMessageEvent generates boundaryEvent with messageEventDefinition', () => {
+    const data = {
+      name: 'P',
+      elements: [
+        { id: 'task1', type: 'task', name: 'Task' },
+        { id: 'b1', type: 'boundaryMessageEvent', name: 'Msg', attachedToRef: 'task1' },
+      ],
+      flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:messageEventDefinition />');
+  });
+
+  test('boundarySignalEvent generates boundaryEvent with signalEventDefinition', () => {
+    const data = {
+      name: 'P',
+      elements: [
+        { id: 'task1', type: 'task', name: 'Task' },
+        { id: 'b1', type: 'boundarySignalEvent', name: 'Sig', attachedToRef: 'task1' },
+      ],
+      flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:signalEventDefinition />');
+  });
+
+  test('validate throws when boundaryEvent is missing attachedToRef', () => {
+    const data = {
+      name: 'P',
+      elements: [
+        { id: 'task1', type: 'task', name: 'Task' },
+        { id: 'b1', type: 'boundaryTimerEvent', name: 'Timeout' },
+      ],
+      flows: [],
+    };
+    expect(() => validate(data)).toThrow('attachedToRef');
+  });
+
+  test('validate throws when boundaryEvent attachedToRef references unknown element', () => {
+    const data = {
+      name: 'P',
+      elements: [
+        { id: 'b1', type: 'boundaryTimerEvent', name: 'Timeout', attachedToRef: 'nonexistent' },
+      ],
+      flows: [],
+    };
+    expect(() => validate(data)).toThrow('attachedToRef');
+  });
+
+  test('intermediate events use eventSize in layout', () => {
+    const xml = generate(INTERMEDIATE_DATA);
+    // eventSize is 36, so width and height for timer event should be 36
+    const re = /id="timer1_di"[\s\S]*?<dc:Bounds[^>]*width="([^"]+)"/;
+    const m = xml.match(re);
+    expect(m).not.toBeNull();
+    expect(parseFloat(m[1])).toBe(36);
+  });
+
+  test('ELEMENT_TYPES exports all new intermediate and boundary event types', () => {
+    const newTypes = [
+      'intermediateTimerEvent', 'intermediateMessageEvent', 'intermediateSignalEvent',
+      'intermediateConditionalEvent', 'intermediateThrowEvent', 'intermediateMessageThrowEvent',
+      'intermediateSignalThrowEvent', 'intermediateEscalationEvent', 'intermediateLinkEvent',
+      'boundaryTimerEvent', 'boundaryErrorEvent', 'boundaryMessageEvent', 'boundarySignalEvent',
+    ];
+    newTypes.forEach((t) => expect(ELEMENT_TYPES).toHaveProperty(t));
   });
 });

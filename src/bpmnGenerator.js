@@ -12,6 +12,41 @@ const ELEMENT_TYPES = {
   exclusiveGateway: 'bpmn:exclusiveGateway',
   parallelGateway: 'bpmn:parallelGateway',
   inclusiveGateway: 'bpmn:inclusiveGateway',
+  // Intermediate Catch Events
+  intermediateTimerEvent: 'bpmn:intermediateCatchEvent',
+  intermediateMessageEvent: 'bpmn:intermediateCatchEvent',
+  intermediateSignalEvent: 'bpmn:intermediateCatchEvent',
+  intermediateConditionalEvent: 'bpmn:intermediateCatchEvent',
+  // Intermediate Throw Events
+  intermediateThrowEvent: 'bpmn:intermediateThrowEvent',
+  intermediateMessageThrowEvent: 'bpmn:intermediateThrowEvent',
+  intermediateSignalThrowEvent: 'bpmn:intermediateThrowEvent',
+  intermediateEscalationEvent: 'bpmn:intermediateThrowEvent',
+  intermediateLinkEvent: 'bpmn:intermediateThrowEvent',
+  // Boundary Events
+  boundaryTimerEvent: 'bpmn:boundaryEvent',
+  boundaryErrorEvent: 'bpmn:boundaryEvent',
+  boundaryMessageEvent: 'bpmn:boundaryEvent',
+  boundarySignalEvent: 'bpmn:boundaryEvent',
+};
+
+/**
+ * Event definition child elements for intermediate and boundary events.
+ * Maps each event type key to its BPMN 2.0 event definition tag.
+ */
+const EVENT_DEFINITIONS = {
+  intermediateTimerEvent: 'bpmn:timerEventDefinition',
+  intermediateMessageEvent: 'bpmn:messageEventDefinition',
+  intermediateSignalEvent: 'bpmn:signalEventDefinition',
+  intermediateConditionalEvent: 'bpmn:conditionalEventDefinition',
+  intermediateMessageThrowEvent: 'bpmn:messageEventDefinition',
+  intermediateSignalThrowEvent: 'bpmn:signalEventDefinition',
+  intermediateEscalationEvent: 'bpmn:escalationEventDefinition',
+  intermediateLinkEvent: 'bpmn:linkEventDefinition',
+  boundaryTimerEvent: 'bpmn:timerEventDefinition',
+  boundaryErrorEvent: 'bpmn:errorEventDefinition',
+  boundaryMessageEvent: 'bpmn:messageEventDefinition',
+  boundarySignalEvent: 'bpmn:signalEventDefinition',
 };
 
 /**
@@ -61,6 +96,17 @@ function validate(data) {
       throw new Error(`Duplicate element id "${el.id}".`);
     }
     ids.add(el.id);
+  }
+
+  // Validate attachedToRef for boundary events (second pass after all ids are collected)
+  for (const el of data.elements) {
+    if (el.type.startsWith('boundary')) {
+      if (!el.attachedToRef || !ids.has(el.attachedToRef)) {
+        throw new Error(
+          `Boundary event "${el.id}" must have an "attachedToRef" referencing a valid element id.`
+        );
+      }
+    }
   }
 
   const flowIds = new Set();
@@ -188,7 +234,7 @@ function computeLayout(elements, flows = []) {
   // Compute positions from column and row
   for (const el of elements) {
     const isGateway = el.type.toLowerCase().includes('gateway');
-    const isEvent = el.type === 'startEvent' || el.type === 'endEvent';
+    const isEvent = el.type.endsWith('Event');
     const width = isGateway ? LAYOUT.gatewaySize : isEvent ? LAYOUT.eventSize : LAYOUT.elementWidth;
     const height = isGateway ? LAYOUT.gatewaySize : isEvent ? LAYOUT.eventSize : LAYOUT.elementHeight;
     const x = LAYOUT.startX + col.get(el.id) * LAYOUT.stepX;
@@ -229,7 +275,12 @@ function generate(data) {
   const elementLines = data.elements.map((el) => {
     const tag = ELEMENT_TYPES[el.type];
     const name = el.name ? ` name="${escapeXml(el.name)}"` : '';
-    return `    <${tag} id="${escapeXml(el.id)}"${name} />`;
+    const attachedToRef = el.attachedToRef ? ` attachedToRef="${escapeXml(el.attachedToRef)}"` : '';
+    const eventDef = EVENT_DEFINITIONS[el.type];
+    if (eventDef) {
+      return `    <${tag} id="${escapeXml(el.id)}"${name}${attachedToRef}>\n      <${eventDef} />\n    </${tag}>`;
+    }
+    return `    <${tag} id="${escapeXml(el.id)}"${name}${attachedToRef} />`;
   });
 
   // Build sequence flows XML
@@ -242,7 +293,7 @@ function generate(data) {
   const shapeLines = data.elements.map((el) => {
     const pos = positions.get(el.id);
     const isGateway = el.type.toLowerCase().includes('gateway');
-    const isEvent = el.type === 'startEvent' || el.type === 'endEvent';
+    const isEvent = el.type.endsWith('Event');
     const label = isGateway || isEvent ? '' : `
         <bpmndi:BPMNLabel />`;
     return `      <bpmndi:BPMNShape id="${escapeXml(el.id)}_di" bpmnElement="${escapeXml(el.id)}">
@@ -309,4 +360,4 @@ function changeElementType(data, elementId, newType) {
   return { ...data, elements: updatedElements };
 }
 
-module.exports = { generate, validate, changeElementType, ELEMENT_TYPES };
+module.exports = { generate, validate, changeElementType, ELEMENT_TYPES, EVENT_DEFINITIONS };

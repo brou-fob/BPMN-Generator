@@ -289,7 +289,7 @@
     <span class="chip">↕ Drag &amp; Drop</span>
     <span class="chip">✏ Typ ändern</span>
     <span class="chip">⬇ BPMN-Download</span>
-    <span class="chip">8 Element-Typen</span>
+    <span class="chip">21 Element-Typen</span>
   </div>
 
   <!-- ── Main ────────────────────────────────────────────── -->
@@ -328,6 +328,19 @@
               <tr><td><code class="type-tag">exclusiveGateway</code></td><td>Exclusive Gateway (XOR)</td></tr>
               <tr><td><code class="type-tag">parallelGateway</code></td><td>Parallel Gateway (AND)</td></tr>
               <tr><td><code class="type-tag">inclusiveGateway</code></td><td>Inclusive Gateway (OR)</td></tr>
+              <tr><td><code class="type-tag">intermediateTimerEvent</code></td><td>Timer Intermediate Catch Event</td></tr>
+              <tr><td><code class="type-tag">intermediateMessageEvent</code></td><td>Message Intermediate Catch Event</td></tr>
+              <tr><td><code class="type-tag">intermediateSignalEvent</code></td><td>Signal Intermediate Catch Event</td></tr>
+              <tr><td><code class="type-tag">intermediateConditionalEvent</code></td><td>Conditional Intermediate Catch Event</td></tr>
+              <tr><td><code class="type-tag">intermediateThrowEvent</code></td><td>Intermediate Throw Event</td></tr>
+              <tr><td><code class="type-tag">intermediateMessageThrowEvent</code></td><td>Message Intermediate Throw Event</td></tr>
+              <tr><td><code class="type-tag">intermediateSignalThrowEvent</code></td><td>Signal Intermediate Throw Event</td></tr>
+              <tr><td><code class="type-tag">intermediateEscalationEvent</code></td><td>Escalation Intermediate Throw Event</td></tr>
+              <tr><td><code class="type-tag">intermediateLinkEvent</code></td><td>Link Intermediate Throw Event</td></tr>
+              <tr><td><code class="type-tag">boundaryTimerEvent</code></td><td>Timer Boundary Event</td></tr>
+              <tr><td><code class="type-tag">boundaryErrorEvent</code></td><td>Error Boundary Event</td></tr>
+              <tr><td><code class="type-tag">boundaryMessageEvent</code></td><td>Message Boundary Event</td></tr>
+              <tr><td><code class="type-tag">boundarySignalEvent</code></td><td>Signal Boundary Event</td></tr>
             </tbody>
           </table>
         </div>
@@ -360,6 +373,19 @@
       <option value="exclusiveGateway">Exclusive Gateway (XOR)</option>
       <option value="parallelGateway">Parallel Gateway (AND)</option>
       <option value="inclusiveGateway">Inclusive Gateway (OR)</option>
+      <option value="intermediateTimerEvent">Timer Intermediate Catch Event</option>
+      <option value="intermediateMessageEvent">Message Intermediate Catch Event</option>
+      <option value="intermediateSignalEvent">Signal Intermediate Catch Event</option>
+      <option value="intermediateConditionalEvent">Conditional Intermediate Catch Event</option>
+      <option value="intermediateThrowEvent">Intermediate Throw Event</option>
+      <option value="intermediateMessageThrowEvent">Message Intermediate Throw Event</option>
+      <option value="intermediateSignalThrowEvent">Signal Intermediate Throw Event</option>
+      <option value="intermediateEscalationEvent">Escalation Intermediate Throw Event</option>
+      <option value="intermediateLinkEvent">Link Intermediate Throw Event</option>
+      <option value="boundaryTimerEvent">Timer Boundary Event</option>
+      <option value="boundaryErrorEvent">Error Boundary Event</option>
+      <option value="boundaryMessageEvent">Message Boundary Event</option>
+      <option value="boundarySignalEvent">Signal Boundary Event</option>
     </select>
     <div class="type-selector-actions">
       <button id="typeSelectorCancel">Abbrechen</button>
