@@ -527,3 +527,289 @@ describe('intermediate and boundary events', () => {
     newTypes.forEach((t) => expect(ELEMENT_TYPES).toHaveProperty(t));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Pools and Lanes
+// ---------------------------------------------------------------------------
+
+const POOL_DATA = {
+  name: 'Order Process',
+  pools: [
+    {
+      id: 'pool1',
+      name: 'Customer',
+      lanes: [
+        { id: 'lane1', name: 'Sales' },
+        { id: 'lane2', name: 'Operations' },
+      ],
+    },
+  ],
+  elements: [
+    { id: 'start1', type: 'startEvent',  name: 'Start',  laneRef: 'lane1' },
+    { id: 'task1',  type: 'task',        name: 'Task A', laneRef: 'lane1' },
+    { id: 'task2',  type: 'task',        name: 'Task B', laneRef: 'lane2' },
+    { id: 'end1',   type: 'endEvent',    name: 'End',    laneRef: 'lane2' },
+  ],
+  flows: [
+    { id: 'f1', source: 'start1', target: 'task1' },
+    { id: 'f2', source: 'task1',  target: 'task2' },
+    { id: 'f3', source: 'task2',  target: 'end1'  },
+  ],
+};
+
+describe('validate() – pools and lanes', () => {
+  test('accepts valid pool/lane data', () => {
+    expect(() => validate(POOL_DATA)).not.toThrow();
+  });
+
+  test('accepts data without pools field (unchanged behaviour)', () => {
+    expect(() => validate(MINIMAL_DATA)).not.toThrow();
+  });
+
+  test('throws when pools is not an array', () => {
+    const data = { ...POOL_DATA, pools: 'bad' };
+    expect(() => validate(data)).toThrow('"pools" must be an array');
+  });
+
+  test('throws when pool is missing id', () => {
+    const data = { ...POOL_DATA, pools: [{ name: 'No Id', lanes: [] }] };
+    expect(() => validate(data)).toThrow('pool must have a string "id"');
+  });
+
+  test('throws on duplicate pool id', () => {
+    const data = {
+      ...POOL_DATA,
+      pools: [
+        { id: 'pool1', name: 'A', lanes: [] },
+        { id: 'pool1', name: 'B', lanes: [] },
+      ],
+    };
+    expect(() => validate(data)).toThrow('Duplicate pool id');
+  });
+
+  test('throws when pool lanes is not an array', () => {
+    const data = {
+      ...POOL_DATA,
+      pools: [{ id: 'pool1', name: 'P', lanes: 'bad' }],
+    };
+    expect(() => validate(data)).toThrow('"lanes" must be an array');
+  });
+
+  test('throws when lane is missing id', () => {
+    const data = {
+      ...POOL_DATA,
+      pools: [{ id: 'pool1', name: 'P', lanes: [{ name: 'No Id' }] }],
+    };
+    expect(() => validate(data)).toThrow('lane must have a string "id"');
+  });
+
+  test('throws on duplicate lane id', () => {
+    const data = {
+      ...POOL_DATA,
+      pools: [
+        { id: 'pool1', name: 'P', lanes: [{ id: 'lane1', name: 'X' }, { id: 'lane1', name: 'Y' }] },
+      ],
+    };
+    expect(() => validate(data)).toThrow('Duplicate lane id');
+  });
+
+  test('throws when element laneRef references unknown lane', () => {
+    const data = {
+      ...POOL_DATA,
+      elements: [
+        { id: 'start1', type: 'startEvent', laneRef: 'nonexistent' },
+        ...POOL_DATA.elements.slice(1),
+      ],
+    };
+    expect(() => validate(data)).toThrow('laneRef');
+  });
+
+  test('throws when laneRef is used but no pools are defined', () => {
+    const data = {
+      ...MINIMAL_DATA,
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start', laneRef: 'lane1' },
+        ...MINIMAL_DATA.elements.slice(1),
+      ],
+    };
+    expect(() => validate(data)).toThrow('laneRef');
+  });
+});
+
+describe('generate() – pools and lanes', () => {
+  test('output contains bpmn:collaboration with correct id', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('<bpmn:collaboration id="Collaboration_1"');
+  });
+
+  test('output contains participant for each pool', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('<bpmn:participant');
+    expect(xml).toContain('id="pool1"');
+    expect(xml).toContain('name="Customer"');
+    expect(xml).toContain('processRef="Process_pool1"');
+  });
+
+  test('output contains laneSet within process', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('<bpmn:laneSet');
+    expect(xml).toContain('<bpmn:lane id="lane1"');
+    expect(xml).toContain('name="Sales"');
+    expect(xml).toContain('<bpmn:lane id="lane2"');
+    expect(xml).toContain('name="Operations"');
+  });
+
+  test('output contains flowNodeRef entries for lane-assigned elements', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('<bpmn:flowNodeRef>start1</bpmn:flowNodeRef>');
+    expect(xml).toContain('<bpmn:flowNodeRef>task1</bpmn:flowNodeRef>');
+    expect(xml).toContain('<bpmn:flowNodeRef>task2</bpmn:flowNodeRef>');
+    expect(xml).toContain('<bpmn:flowNodeRef>end1</bpmn:flowNodeRef>');
+  });
+
+  test('BPMNPlane references collaboration when pools are defined', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('bpmnElement="Collaboration_1"');
+  });
+
+  test('output contains pool BPMNShape with isHorizontal', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('id="pool1_di"');
+    expect(xml).toContain('isHorizontal="true"');
+  });
+
+  test('output contains BPMNShape for each lane', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('id="lane1_di"');
+    expect(xml).toContain('id="lane2_di"');
+  });
+
+  test('output contains BPMNShape for each element', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('id="start1_di"');
+    expect(xml).toContain('id="task1_di"');
+    expect(xml).toContain('id="task2_di"');
+    expect(xml).toContain('id="end1_di"');
+  });
+
+  test('output contains BPMNEdge for each flow', () => {
+    const xml = generate(POOL_DATA);
+    expect(xml).toContain('id="f1_di"');
+    expect(xml).toContain('id="f2_di"');
+    expect(xml).toContain('id="f3_di"');
+  });
+
+  test('elements in different lanes have different Y coordinates', () => {
+    const xml = generate(POOL_DATA);
+    const yTask1 = getShapeY(xml, 'task1');
+    const yTask2 = getShapeY(xml, 'task2');
+    expect(yTask1).not.toBeNull();
+    expect(yTask2).not.toBeNull();
+    expect(yTask1).not.toBe(yTask2);
+  });
+
+  test('elements in the same lane share the same Y coordinate', () => {
+    const xml = generate(POOL_DATA);
+    // start1 (eventSize=36) and task1 (elementHeight=80) are both in lane1
+    // Both are vertically centred in lane1: y = laneY + laneHeight/2 - height/2
+    // Their vertical centres (y + height/2) must be identical.
+    const yStart = getShapeY(xml, 'start1');
+    const yTask1 = getShapeY(xml, 'task1');
+    expect(yStart).not.toBeNull();
+    expect(yTask1).not.toBeNull();
+    const centreStart = yStart + 36 / 2;  // eventSize / 2
+    const centreTask1 = yTask1 + 80 / 2;  // elementHeight / 2
+    expect(centreStart).toBe(centreTask1);
+  });
+
+  test('pool without lanes generates pool shape but no lane shapes', () => {
+    const data = {
+      name: 'Simple Pool',
+      pools: [{ id: 'pool1', name: 'My Pool' }],
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start' },
+        { id: 'end1',   type: 'endEvent',   name: 'End'   },
+      ],
+      flows: [{ id: 'f1', source: 'start1', target: 'end1' }],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('id="pool1_di"');
+    // No lane shapes expected
+    expect(xml).not.toMatch(/id="lane\w+_di"/);
+  });
+
+  test('multiple pools generate multiple participants and processes', () => {
+    const data = {
+      name: 'Multi Pool',
+      pools: [
+        { id: 'pool1', name: 'Customer', lanes: [{ id: 'lane1', name: 'Order' }] },
+        { id: 'pool2', name: 'Vendor',   lanes: [{ id: 'lane2', name: 'Fulfill' }] },
+      ],
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start',   laneRef: 'lane1' },
+        { id: 'end1',   type: 'endEvent',   name: 'End',     laneRef: 'lane1' },
+        { id: 'vtask1', type: 'task',       name: 'Fulfill', laneRef: 'lane2' },
+      ],
+      flows: [{ id: 'f1', source: 'start1', target: 'end1' }],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('id="pool1"');
+    expect(xml).toContain('id="pool2"');
+    expect(xml).toContain('id="Process_pool1"');
+    expect(xml).toContain('id="Process_pool2"');
+    // Both pools stacked → pool2 shape y > pool1 shape y
+    const yPool1 = (() => {
+      const m = xml.match(/id="pool1_di"[\s\S]*?<dc:Bounds[^>]*y="([^"]+)"/);
+      return m ? parseFloat(m[1]) : null;
+    })();
+    const yPool2 = (() => {
+      const m = xml.match(/id="pool2_di"[\s\S]*?<dc:Bounds[^>]*y="([^"]+)"/);
+      return m ? parseFloat(m[1]) : null;
+    })();
+    expect(yPool1).not.toBeNull();
+    expect(yPool2).not.toBeNull();
+    expect(yPool2).toBeGreaterThan(yPool1);
+  });
+
+  test('cross-pool flows are excluded from sequence flows', () => {
+    const data = {
+      name: 'Cross Pool',
+      pools: [
+        { id: 'pool1', name: 'A', lanes: [{ id: 'lane1', name: 'L1' }] },
+        { id: 'pool2', name: 'B', lanes: [{ id: 'lane2', name: 'L2' }] },
+      ],
+      elements: [
+        { id: 'task1', type: 'task', name: 'T1', laneRef: 'lane1' },
+        { id: 'task2', type: 'task', name: 'T2', laneRef: 'lane2' },
+      ],
+      flows: [
+        // cross-pool flow — should not appear in sequenceFlows
+        { id: 'crossFlow', source: 'task1', target: 'task2' },
+      ],
+    };
+    const xml = generate(data);
+    expect(xml).not.toContain('id="crossFlow"');
+  });
+
+  test('generate with pools still starts with XML declaration', () => {
+    expect(generate(POOL_DATA)).toMatch(/^<\?xml version="1\.0"/);
+  });
+
+  test('generate with pools escapes XML special characters in pool and lane names', () => {
+    const data = {
+      name: 'P',
+      pools: [
+        {
+          id: 'pool1',
+          name: 'A & B',
+          lanes: [{ id: 'lane1', name: '<Sales>' }],
+        },
+      ],
+      elements: [{ id: 'start1', type: 'startEvent', laneRef: 'lane1' }],
+      flows: [],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('name="A &amp; B"');
+    expect(xml).toContain('name="&lt;Sales&gt;"');
+  });
+});

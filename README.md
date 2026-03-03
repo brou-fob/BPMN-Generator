@@ -20,11 +20,12 @@ npm start
 
 Send a JSON object with the following fields to `POST /api/generate`:
 
-| Field      | Type   | Required | Description                            |
-|------------|--------|----------|----------------------------------------|
-| `name`     | string | ✅       | Name of the process                    |
-| `elements` | array  | ✅       | List of BPMN flow elements             |
-| `flows`    | array  | ✅       | List of sequence flows between elements|
+| Field      | Type   | Required | Description                                        |
+|------------|--------|----------|----------------------------------------------------|
+| `name`     | string | ✅       | Name of the process                                |
+| `elements` | array  | ✅       | List of BPMN flow elements                         |
+| `flows`    | array  | ✅       | List of sequence flows between elements            |
+| `pools`    | array  | ❌       | List of Pools (swimlane groups); enables collaboration mode |
 
 ### Element object
 
@@ -34,8 +35,10 @@ Send a JSON object with the following fields to `POST /api/generate`:
 | `type`         | string | ✅       | One of the supported types (see below)           |
 | `name`         | string | ❌       | Display label                                    |
 | `attachedToRef`| string | ❌ *     | Required for boundary events: id of the attached activity |
+| `laneRef`      | string | ❌ **    | Id of the Lane this element belongs to           |
 
-\* Required when `type` is a boundary event type.
+\* Required when `type` is a boundary event type.  
+\*\* Required only when `pools` with lanes are defined; the referenced lane id must exist.
 
 **Supported element types:**
 
@@ -72,7 +75,64 @@ Send a JSON object with the following fields to `POST /api/generate`:
 | `target` | string | ✅       | `id` of the target element    |
 | `name`   | string | ❌       | Condition label               |
 
-### Example
+### Pool object (`pools` array)
+
+| Field    | Type   | Required | Description                                    |
+|----------|--------|----------|------------------------------------------------|
+| `id`     | string | ✅       | Unique identifier for the pool                 |
+| `name`   | string | ❌       | Display label shown on the pool header         |
+| `lanes`  | array  | ❌       | List of Lane objects contained within the pool |
+
+### Lane object (inside a pool's `lanes` array)
+
+| Field  | Type   | Required | Description                       |
+|--------|--------|----------|-----------------------------------|
+| `id`   | string | ✅       | Unique identifier for the lane    |
+| `name` | string | ❌       | Display label shown on the lane   |
+
+**Swimlane / Pool behaviour:**
+
+- When `pools` is provided, the generator creates a BPMN 2.0 **Collaboration** wrapping each pool as a separate `bpmn:participant` and `bpmn:process`.
+- Each pool may have one or more **Lanes** (horizontal swimlanes). Elements are assigned to a lane via their `laneRef` field.
+- **Multiple pools** are supported; each pool gets its own process. Sequence flows between pools are automatically excluded (cross-pool communication would require BPMN Message Flows, which are not yet supported).
+- Elements without a `laneRef` are placed into the first pool's process.
+- The auto-layout engine positions elements left-to-right (by topological column) and centres them vertically within their lane band.
+
+### Example (with Pools and Lanes)
+
+```json
+{
+  "name": "Order Process",
+  "pools": [
+    {
+      "id": "pool1",
+      "name": "Customer",
+      "lanes": [
+        { "id": "lane_sales", "name": "Sales" },
+        { "id": "lane_ops",   "name": "Operations" }
+      ]
+    }
+  ],
+  "elements": [
+    { "id": "start1", "type": "startEvent",      "name": "Order received",  "laneRef": "lane_sales" },
+    { "id": "task1",  "type": "userTask",         "name": "Review order",    "laneRef": "lane_sales" },
+    { "id": "gw1",    "type": "exclusiveGateway", "name": "Valid?",          "laneRef": "lane_sales" },
+    { "id": "task2",  "type": "serviceTask",      "name": "Confirm order",   "laneRef": "lane_ops"   },
+    { "id": "task3",  "type": "task",             "name": "Reject order",    "laneRef": "lane_ops"   },
+    { "id": "end1",   "type": "endEvent",         "name": "Done",            "laneRef": "lane_ops"   }
+  ],
+  "flows": [
+    { "id": "f1", "source": "start1", "target": "task1" },
+    { "id": "f2", "source": "task1",  "target": "gw1" },
+    { "id": "f3", "source": "gw1",    "target": "task2", "name": "Yes" },
+    { "id": "f4", "source": "gw1",    "target": "task3", "name": "No"  },
+    { "id": "f5", "source": "task2",  "target": "end1" },
+    { "id": "f6", "source": "task3",  "target": "end1" }
+  ]
+}
+```
+
+### Example (without Pools)
 
 ```json
 {
