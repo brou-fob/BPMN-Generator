@@ -2,7 +2,7 @@
 
 const express = require('express');
 const path = require('path');
-const { generate } = require('./bpmnGenerator');
+const { generate, changeElementType } = require('./bpmnGenerator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +39,30 @@ app.post('/api/generate', (req, res) => {
     const bpmnXml = generate(req.body);
     res.set('Content-Type', 'application/xml');
     res.send(bpmnXml);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/change-type
+ *
+ * Changes the type of an element in the process definition.
+ *
+ * Request body:
+ * {
+ *   "data": { <process definition> },
+ *   "elementId": "task1",
+ *   "newType": "userTask"
+ * }
+ *
+ * Response: updated process definition JSON
+ */
+app.post('/api/change-type', (req, res) => {
+  try {
+    const { data, elementId, newType } = req.body;
+    const updatedData = changeElementType(data, elementId, newType);
+    res.json(updatedData);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

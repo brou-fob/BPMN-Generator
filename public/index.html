@@ -74,6 +74,52 @@
       white-space: nowrap;
     }
 
+    /* ── Type selector popup ────────────────────────────────── */
+    .type-selector {
+      position: fixed;
+      z-index: 1000;
+      background: white;
+      border: 1px solid #c5d8fb;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+      padding: 12px;
+      min-width: 220px;
+    }
+    .type-selector-title {
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      margin-bottom: 8px;
+    }
+    .type-selector select {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      margin-bottom: 8px;
+      outline: none;
+      cursor: pointer;
+      min-height: auto;
+      flex: none;
+    }
+    .type-selector select:focus { border-color: #1a73e8; }
+    .type-selector-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .type-selector-actions button {
+      padding: 5px 12px;
+      font-size: 0.8rem;
+    }
+    #typeSelectorApply { background: #1a73e8; color: white; }
+    #typeSelectorApply:hover { background: #1558b0; }
+    #typeSelectorCancel { background: #f1f3f4; color: #333; }
+    #typeSelectorCancel:hover { background: #e0e0e0; }
+
     /* ── Layout ────────────────────────────────────────────── */
     .container {
       display: flex;
@@ -241,6 +287,7 @@
     <span class="chip">🔄 JSON → BPMN 2.0 XML</span>
     <span class="chip">🖥 Live-Vorschau (bpmn.io)</span>
     <span class="chip">↕ Drag &amp; Drop</span>
+    <span class="chip">✏ Typ ändern</span>
     <span class="chip">⬇ BPMN-Download</span>
     <span class="chip">8 Element-Typen</span>
   </div>
@@ -298,6 +345,25 @@
         </svg>
         <p>Geben Sie eine Prozessdefinition ein<br>und klicken Sie auf „Diagramm erzeugen".</p>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Type selector popup ─────────────────────────────── -->
+  <div id="typeSelector" class="type-selector" hidden aria-label="Element-Typ ändern" role="dialog">
+    <div class="type-selector-title">Element-Typ ändern</div>
+    <select id="typeSelect" aria-label="Neuer Element-Typ">
+      <option value="startEvent">Start Event</option>
+      <option value="endEvent">End Event</option>
+      <option value="task">Generic Task</option>
+      <option value="userTask">User Task</option>
+      <option value="serviceTask">Service Task</option>
+      <option value="exclusiveGateway">Exclusive Gateway (XOR)</option>
+      <option value="parallelGateway">Parallel Gateway (AND)</option>
+      <option value="inclusiveGateway">Inclusive Gateway (OR)</option>
+    </select>
+    <div class="type-selector-actions">
+      <button id="typeSelectorCancel">Abbrechen</button>
+      <button id="typeSelectorApply">Übernehmen</button>
     </div>
   </div>
 
@@ -411,6 +477,103 @@
         showError('Fehler beim Erzeugen des Diagramms: ' + e.message);
       }
     }
+
+    /* ── Type selector ────────────────────────────────────── */
+    const BPMNJS_TYPE_MAP = {
+      'bpmn:StartEvent':        'startEvent',
+      'bpmn:EndEvent':          'endEvent',
+      'bpmn:Task':              'task',
+      'bpmn:UserTask':          'userTask',
+      'bpmn:ServiceTask':       'serviceTask',
+      'bpmn:ExclusiveGateway':  'exclusiveGateway',
+      'bpmn:ParallelGateway':   'parallelGateway',
+      'bpmn:InclusiveGateway':  'inclusiveGateway',
+    };
+
+    const typeSelector   = document.getElementById('typeSelector');
+    const typeSelect     = document.getElementById('typeSelect');
+    let pendingElementId = null;
+    let isOpeningPopup = false;
+
+    function showTypeSelector(elementId, currentType, x, y) {
+      pendingElementId = elementId;
+      typeSelect.value = currentType || '';
+      // Position popup near click, clamped to viewport
+      const popupW = 240, popupH = 130;
+      typeSelector.style.left = Math.min(x, window.innerWidth  - popupW - 8) + 'px';
+      typeSelector.style.top  = Math.min(y, window.innerHeight - popupH - 8) + 'px';
+      typeSelector.hidden = false;
+      typeSelect.focus();
+    }
+
+    function hideTypeSelector() {
+      typeSelector.hidden = true;
+      pendingElementId = null;
+    }
+
+    modeler.on('element.click', function (event) {
+      const el = event.element;
+      if (!BPMNJS_TYPE_MAP[el.type]) {
+        hideTypeSelector();
+        return;
+      }
+      const currentType = BPMNJS_TYPE_MAP[el.type];
+      const originalEvent = event.originalEvent || {};
+      const x = (originalEvent.clientX || 0) + 12;
+      const y = (originalEvent.clientY || 0) + 12;
+      isOpeningPopup = true;
+      showTypeSelector(el.id, currentType, x, y);
+    });
+
+    document.getElementById('typeSelectorApply').addEventListener('click', async () => {
+      if (!pendingElementId) return;
+      const newType = typeSelect.value;
+      let currentData;
+      try {
+        currentData = JSON.parse(inputJson.value);
+      } catch (e) {
+        showError('Ungültiges JSON: ' + e.message);
+        hideTypeSelector();
+        return;
+      }
+      try {
+        const res = await fetch('/api/change-type', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: currentData, elementId: pendingElementId, newType }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          showError(err.error || 'Unbekannter Fehler');
+          hideTypeSelector();
+          return;
+        }
+        const updatedData = await res.json();
+        inputJson.value = JSON.stringify(updatedData, null, 2);
+        hideTypeSelector();
+        await generate();
+      } catch (e) {
+        showError('Fehler beim Ändern des Typs: ' + e.message);
+        hideTypeSelector();
+      }
+    });
+
+    document.getElementById('typeSelectorCancel').addEventListener('click', hideTypeSelector);
+
+    // Close popup when clicking outside of it
+    document.addEventListener('click', (e) => {
+      if (isOpeningPopup) {
+        isOpeningPopup = false;
+        return;
+      }
+      if (!typeSelector.hidden && !typeSelector.contains(e.target)) {
+        hideTypeSelector();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') hideTypeSelector();
+    });
 
     document.getElementById('generateBtn').addEventListener('click', generate);
 

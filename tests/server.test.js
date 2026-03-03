@@ -67,3 +67,48 @@ describe('POST /api/generate', () => {
     expect(res.body.error).toMatch(/unknown target/i);
   });
 });
+
+describe('POST /api/change-type', () => {
+  test('returns updated process data with the element type changed', async () => {
+    const res = await request(app)
+      .post('/api/change-type')
+      .send({ data: VALID_BODY, elementId: 'task1', newType: 'userTask' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(200);
+    const updated = res.body;
+    const el = updated.elements.find((e) => e.id === 'task1');
+    expect(el.type).toBe('userTask');
+  });
+
+  test('returns 400 for unknown newType', async () => {
+    const res = await request(app)
+      .post('/api/change-type')
+      .send({ data: VALID_BODY, elementId: 'task1', newType: 'badType' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toMatch(/Unknown type/i);
+  });
+
+  test('returns 400 when elementId is not found', async () => {
+    const res = await request(app)
+      .post('/api/change-type')
+      .send({ data: VALID_BODY, elementId: 'nonexistent', newType: 'task' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+
+  test('returns 400 when data is invalid', async () => {
+    const res = await request(app)
+      .post('/api/change-type')
+      .send({ data: { name: 'Bad', elements: [], flows: [] }, elementId: 'x', newType: 'task' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
+  });
+});

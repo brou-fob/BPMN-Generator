@@ -198,4 +198,29 @@ ${edgeLines.join('\n')}
 </bpmn:definitions>`;
 }
 
-module.exports = { generate, validate, ELEMENT_TYPES };
+/**
+ * Changes the type of an element within the process data.
+ * @param {object} data - The structured process data.
+ * @param {string} elementId - The id of the element whose type should change.
+ * @param {string} newType - The new element type key (must be a key of ELEMENT_TYPES).
+ * @returns {object} A new process data object with the element type updated.
+ * @throws {Error} if newType is unsupported or elementId is not found.
+ */
+function changeElementType(data, elementId, newType) {
+  validate(data);
+  if (!newType || !ELEMENT_TYPES[newType]) {
+    throw new Error(
+      `Unknown type "${newType}". Supported types: ${Object.keys(ELEMENT_TYPES).join(', ')}.`
+    );
+  }
+  const elementIndex = data.elements.findIndex((el) => el.id === elementId);
+  if (elementIndex === -1) {
+    throw new Error(`Element "${elementId}" not found.`);
+  }
+  const updatedElements = data.elements.map((el, i) =>
+    i === elementIndex ? { ...el, type: newType } : el
+  );
+  return { ...data, elements: updatedElements };
+}
+
+module.exports = { generate, validate, changeElementType, ELEMENT_TYPES };

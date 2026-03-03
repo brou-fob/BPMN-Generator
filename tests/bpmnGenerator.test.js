@@ -1,6 +1,6 @@
 'use strict';
 
-const { generate, validate, ELEMENT_TYPES } = require('../src/bpmnGenerator');
+const { generate, validate, changeElementType, ELEMENT_TYPES } = require('../src/bpmnGenerator');
 
 const MINIMAL_DATA = {
   name: 'Test Process',
@@ -190,5 +190,52 @@ describe('generate()', () => {
       'exclusiveGateway', 'parallelGateway', 'inclusiveGateway',
     ];
     expected.forEach((t) => expect(ELEMENT_TYPES).toHaveProperty(t));
+  });
+});
+
+describe('changeElementType()', () => {
+  test('changes the type of an existing element', () => {
+    const updated = changeElementType(MINIMAL_DATA, 'task1', 'userTask');
+    const el = updated.elements.find((e) => e.id === 'task1');
+    expect(el.type).toBe('userTask');
+  });
+
+  test('returns a new object without mutating the original', () => {
+    const updated = changeElementType(MINIMAL_DATA, 'task1', 'serviceTask');
+    expect(updated).not.toBe(MINIMAL_DATA);
+    const original = MINIMAL_DATA.elements.find((e) => e.id === 'task1');
+    expect(original.type).toBe('task');
+  });
+
+  test('preserves all other element properties', () => {
+    const updated = changeElementType(MINIMAL_DATA, 'task1', 'userTask');
+    const el = updated.elements.find((e) => e.id === 'task1');
+    expect(el.id).toBe('task1');
+    expect(el.name).toBe('Do Something');
+  });
+
+  test('preserves other elements unchanged', () => {
+    const updated = changeElementType(MINIMAL_DATA, 'task1', 'userTask');
+    const start = updated.elements.find((e) => e.id === 'start1');
+    expect(start.type).toBe('startEvent');
+  });
+
+  test('throws on unknown newType', () => {
+    expect(() => changeElementType(MINIMAL_DATA, 'task1', 'unknownType')).toThrow('Unknown type');
+  });
+
+  test('throws when elementId is not found', () => {
+    expect(() => changeElementType(MINIMAL_DATA, 'nonexistent', 'task')).toThrow('not found');
+  });
+
+  test('throws if underlying data is invalid', () => {
+    expect(() => changeElementType(null, 'task1', 'task')).toThrow();
+  });
+
+  test('generated XML uses the new type after change', () => {
+    const updated = changeElementType(MINIMAL_DATA, 'task1', 'userTask');
+    const xml = generate(updated);
+    expect(xml).toContain('bpmn:userTask');
+    expect(xml).not.toMatch(/bpmn:task[\s\/>]/);
   });
 });
