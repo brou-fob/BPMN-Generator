@@ -192,3 +192,105 @@ describe('generate()', () => {
     expected.forEach((t) => expect(ELEMENT_TYPES).toHaveProperty(t));
   });
 });
+
+/**
+ * Helper: extract the dc:Bounds y value for a given element id from BPMN XML.
+ */
+function getShapeY(xml, elementId) {
+  const re = new RegExp(
+    `id="${elementId}_di"[\\s\\S]*?<dc:Bounds[^>]*y="([^"]+)"`
+  );
+  const m = xml.match(re);
+  return m ? parseFloat(m[1]) : null;
+}
+
+describe('parallel flow layout', () => {
+  const PARALLEL_DATA = {
+    name: 'Parallel Process',
+    elements: [
+      { id: 'start1', type: 'startEvent', name: 'Start' },
+      { id: 'gw1', type: 'parallelGateway', name: 'Split' },
+      { id: 'taskA', type: 'task', name: 'Task A' },
+      { id: 'taskB', type: 'task', name: 'Task B' },
+      { id: 'gw2', type: 'parallelGateway', name: 'Join' },
+      { id: 'end1', type: 'endEvent', name: 'End' },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1', target: 'gw1' },
+      { id: 'f2', source: 'gw1', target: 'taskA' },
+      { id: 'f3', source: 'gw1', target: 'taskB' },
+      { id: 'f4', source: 'taskA', target: 'gw2' },
+      { id: 'f5', source: 'taskB', target: 'gw2' },
+      { id: 'f6', source: 'gw2', target: 'end1' },
+    ],
+  };
+
+  test('parallel branch tasks are placed at different Y coordinates', () => {
+    const xml = generate(PARALLEL_DATA);
+    const yA = getShapeY(xml, 'taskA');
+    const yB = getShapeY(xml, 'taskB');
+    expect(yA).not.toBeNull();
+    expect(yB).not.toBeNull();
+    expect(yA).not.toBe(yB);
+  });
+
+  test('join gateway is not placed at a branch-only Y position', () => {
+    const xml = generate(PARALLEL_DATA);
+    const yA = getShapeY(xml, 'taskA');
+    const yB = getShapeY(xml, 'taskB');
+    const yJoin = getShapeY(xml, 'gw2');
+    expect(yJoin).not.toBeNull();
+    // Join gateway must differ from both branch task Y positions
+    expect(yJoin).not.toBe(yA);
+    expect(yJoin).not.toBe(yB);
+  });
+
+  test('three parallel branches are each placed at distinct Y coordinates', () => {
+    const data = {
+      name: 'Three Branch Process',
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start' },
+        { id: 'gw1', type: 'parallelGateway', name: 'Split' },
+        { id: 'taskA', type: 'task', name: 'Task A' },
+        { id: 'taskB', type: 'task', name: 'Task B' },
+        { id: 'taskC', type: 'task', name: 'Task C' },
+        { id: 'gw2', type: 'parallelGateway', name: 'Join' },
+        { id: 'end1', type: 'endEvent', name: 'End' },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'gw1' },
+        { id: 'f2', source: 'gw1', target: 'taskA' },
+        { id: 'f3', source: 'gw1', target: 'taskB' },
+        { id: 'f4', source: 'gw1', target: 'taskC' },
+        { id: 'f5', source: 'taskA', target: 'gw2' },
+        { id: 'f6', source: 'taskB', target: 'gw2' },
+        { id: 'f7', source: 'taskC', target: 'gw2' },
+        { id: 'f8', source: 'gw2', target: 'end1' },
+      ],
+    };
+    const xml = generate(data);
+    const yA = getShapeY(xml, 'taskA');
+    const yB = getShapeY(xml, 'taskB');
+    const yC = getShapeY(xml, 'taskC');
+    expect(new Set([yA, yB, yC]).size).toBe(3);
+  });
+
+  test('sequential elements without parallel branches keep same Y coordinate', () => {
+    const xml = generate(MINIMAL_DATA);
+    const yStart = getShapeY(xml, 'start1');
+    const yTask = getShapeY(xml, 'task1');
+    const yEnd = getShapeY(xml, 'end1');
+    // All on the same row (row 0), so their centre Y equals LAYOUT.startY (250).
+    // Just verify they are all equal (no vertical spreading for linear flows)
+    expect(yStart).not.toBeNull();
+    expect(yTask).not.toBeNull();
+    expect(yEnd).not.toBeNull();
+    // All sequential elements share row 0; compute their vertical centres.
+    // LAYOUT.eventSize = 36, LAYOUT.elementHeight = 80
+    const centreStart = yStart + 36 / 2; // startEvent height / 2
+    const centreTask = yTask + 80 / 2;   // task height / 2
+    const centreEnd = yEnd + 36 / 2;     // endEvent height / 2
+    expect(centreStart).toBe(centreTask);
+    expect(centreTask).toBe(centreEnd);
+  });
+});
