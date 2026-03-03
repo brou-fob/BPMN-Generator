@@ -17,22 +17,69 @@
       height: 100vh;
     }
 
+    /* ── Header ────────────────────────────────────────────── */
     header {
       background: #1a73e8;
       color: white;
-      padding: 16px 24px;
-      font-size: 1.25rem;
-      font-weight: 600;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+      flex-shrink: 0;
+    }
+    .header-title { font-size: 1.25rem; font-weight: 600; }
+    .api-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,0.18);
+      border-radius: 12px;
+      padding: 3px 12px;
+      font-size: 0.78rem;
+      font-weight: 500;
+    }
+    .api-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #90caf9;
+      flex-shrink: 0;
+      transition: background 0.4s;
+    }
+    .api-dot.ok   { background: #69f0ae; animation: blink 2.4s infinite; }
+    .api-dot.err  { background: #ff5252; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    /* ── Feature strip ─────────────────────────────────────── */
+    .feature-strip {
+      background: #e8f0fe;
+      border-bottom: 1px solid #c5d8fb;
+      padding: 7px 24px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+    }
+    .strip-label { font-size: 0.78rem; font-weight: 600; color: #1a56c4; }
+    .chip {
+      background: white;
+      border: 1px solid #c5d8fb;
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 0.75rem;
+      color: #444;
+      white-space: nowrap;
     }
 
+    /* ── Layout ────────────────────────────────────────────── */
     .container {
       display: flex;
       flex: 1;
       overflow: hidden;
-      gap: 0;
     }
 
+    /* ── Left panel ────────────────────────────────────────── */
     .panel {
       display: flex;
       flex-direction: column;
@@ -43,14 +90,13 @@
       border-right: 1px solid #e0e0e0;
       overflow-y: auto;
     }
-
     .panel h2 {
-      font-size: 0.875rem;
+      font-size: 0.8rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: #666;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     textarea {
@@ -61,21 +107,21 @@
       border-radius: 6px;
       padding: 10px;
       resize: vertical;
-      min-height: 300px;
+      min-height: 240px;
       line-height: 1.5;
       outline: none;
     }
     textarea:focus { border-color: #1a73e8; }
 
     .actions {
-      margin-top: 12px;
+      margin-top: 10px;
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
     }
 
     button {
-      padding: 8px 16px;
+      padding: 8px 14px;
       border: none;
       border-radius: 6px;
       cursor: pointer;
@@ -84,29 +130,19 @@
       transition: background 0.2s;
     }
 
-    #generateBtn {
-      background: #1a73e8;
-      color: white;
-      flex: 1;
-    }
+    #generateBtn { background: #1a73e8; color: white; flex: 1; }
     #generateBtn:hover { background: #1558b0; }
 
-    #resetBtn {
-      background: #f1f3f4;
-      color: #333;
-    }
+    #resetBtn { background: #f1f3f4; color: #333; }
     #resetBtn:hover { background: #e0e0e0; }
 
-    #downloadBtn {
-      background: #34a853;
-      color: white;
-    }
+    #downloadBtn { background: #34a853; color: white; }
     #downloadBtn:hover { background: #2d8f47; }
     #downloadBtn:disabled { background: #ccc; cursor: default; }
 
     .error-box {
-      margin-top: 10px;
-      padding: 10px;
+      margin-top: 8px;
+      padding: 8px 10px;
       background: #fdecea;
       color: #c62828;
       border-radius: 6px;
@@ -114,17 +150,63 @@
       display: none;
     }
 
+    /* ── Element-type reference ────────────────────────────── */
+    .ref-section {
+      margin-top: 14px;
+      border-top: 1px solid #f0f0f0;
+      padding-top: 10px;
+    }
+    .ref-toggle {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      width: 100%;
+      text-align: left;
+    }
+    .ref-toggle:hover { color: #1a73e8; }
+    .ref-body { margin-top: 8px; }
+    .ref-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+    .ref-table th {
+      text-align: left;
+      color: #888;
+      font-weight: 600;
+      padding: 3px 4px;
+      border-bottom: 1px solid #eee;
+    }
+    .ref-table td {
+      padding: 4px;
+      border-bottom: 1px solid #f5f5f5;
+      color: #444;
+    }
+    .type-tag {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 0.72rem;
+      background: #f1f3f4;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* ── Viewer ────────────────────────────────────────────── */
     .viewer-area {
       flex: 1;
       position: relative;
       overflow: hidden;
       background: #fafafa;
     }
-
-    #canvas {
-      width: 100%;
-      height: 100%;
-    }
+    #canvas { width: 100%; height: 100%; }
 
     .placeholder {
       position: absolute;
@@ -132,81 +214,167 @@
       left: 50%;
       transform: translate(-50%, -50%);
       text-align: center;
-      color: #aaa;
+      color: #bbb;
       pointer-events: none;
+      padding: 0 32px;
     }
     .placeholder svg { margin-bottom: 12px; }
-    .placeholder p { font-size: 0.9rem; }
+    .placeholder p { font-size: 0.9rem; line-height: 1.5; }
   </style>
 </head>
 <body>
-  <header>⚙️ BPMN Generator</header>
 
+  <!-- ── Header ──────────────────────────────────────────── -->
+  <header>
+    <span class="header-title">⚙️ BPMN Generator</span>
+    <span class="api-badge">
+      <span class="api-dot" id="apiDot"></span>
+      API <span id="apiStatus">wird geprüft…</span>
+    </span>
+  </header>
+
+  <!-- ── Feature strip ───────────────────────────────────── -->
+  <div class="feature-strip" role="complementary" aria-label="Funktionsübersicht">
+    <span class="strip-label">Funktionen:</span>
+    <span class="chip">🔄 JSON → BPMN 2.0 XML</span>
+    <span class="chip">🖥 Live-Vorschau (bpmn.io)</span>
+    <span class="chip">⬇ BPMN-Download</span>
+    <span class="chip">8 Element-Typen</span>
+  </div>
+
+  <!-- ── Main ────────────────────────────────────────────── -->
   <div class="container">
+
+    <!-- Left: editor + reference -->
     <div class="panel">
       <h2>Prozessdefinition (JSON)</h2>
-      <textarea id="inputJson" spellcheck="false"></textarea>
+      <textarea id="inputJson" spellcheck="false" aria-label="JSON Prozessdefinition"></textarea>
 
       <div class="actions">
         <button id="generateBtn">▶ Diagramm erzeugen</button>
         <button id="resetBtn">↺ Beispiel laden</button>
         <button id="downloadBtn" disabled>⬇ BPMN herunterladen</button>
       </div>
-      <div id="errorBox" class="error-box"></div>
+      <div id="errorBox" class="error-box" role="alert"></div>
+
+      <!-- Collapsible element-type reference -->
+      <div class="ref-section">
+        <button class="ref-toggle" id="refToggle" aria-expanded="false"
+                aria-controls="refBody">
+          <span id="refArrow" aria-hidden="true">▶</span>
+          Unterstützte Element-Typen
+        </button>
+        <div class="ref-body" id="refBody" hidden>
+          <table class="ref-table" aria-label="Unterstützte BPMN Element-Typen">
+            <thead>
+              <tr><th>type-Wert</th><th>BPMN-Element</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code class="type-tag">startEvent</code></td><td>Start Event</td></tr>
+              <tr><td><code class="type-tag">endEvent</code></td><td>End Event</td></tr>
+              <tr><td><code class="type-tag">task</code></td><td>Generic Task</td></tr>
+              <tr><td><code class="type-tag">userTask</code></td><td>User Task</td></tr>
+              <tr><td><code class="type-tag">serviceTask</code></td><td>Service Task</td></tr>
+              <tr><td><code class="type-tag">exclusiveGateway</code></td><td>Exclusive Gateway (XOR)</td></tr>
+              <tr><td><code class="type-tag">parallelGateway</code></td><td>Parallel Gateway (AND)</td></tr>
+              <tr><td><code class="type-tag">inclusiveGateway</code></td><td>Inclusive Gateway (OR)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
+    <!-- Right: BPMN viewer -->
     <div class="viewer-area">
       <div id="canvas"></div>
       <div class="placeholder" id="placeholder">
-        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5"
+             aria-hidden="true">
           <rect x="3" y="3" width="18" height="18" rx="2"/>
           <path d="M8 12h8M12 8v8"/>
         </svg>
-        <p>Geben Sie eine Prozessdefinition ein und klicken Sie auf „Diagramm erzeugen".</p>
+        <p>Geben Sie eine Prozessdefinition ein<br>und klicken Sie auf „Diagramm erzeugen".</p>
       </div>
     </div>
   </div>
 
   <script>
+    /* ── Example process ──────────────────────────────────── */
     const EXAMPLE = {
       name: "Bestellprozess",
       elements: [
-        { id: "start1",    type: "startEvent",       name: "Bestellung eingang" },
-        { id: "task1",     type: "userTask",          name: "Bestellung prüfen" },
-        { id: "gw1",       type: "exclusiveGateway",  name: "Gültig?" },
-        { id: "task2",     type: "serviceTask",       name: "Bestellung bestätigen" },
-        { id: "task3",     type: "task",              name: "Ablehnung benachrichtigen" },
-        { id: "end1",      type: "endEvent",          name: "Ende" }
+        { id: "start1", type: "startEvent",      name: "Bestellung Eingang" },
+        { id: "task1",  type: "userTask",         name: "Bestellung prüfen" },
+        { id: "gw1",    type: "exclusiveGateway", name: "Gültig?" },
+        { id: "task2",  type: "serviceTask",      name: "Bestellung bestätigen" },
+        { id: "task3",  type: "task",             name: "Ablehnung benachrichtigen" },
+        { id: "end1",   type: "endEvent",         name: "Ende" }
       ],
       flows: [
         { id: "flow1", source: "start1", target: "task1" },
         { id: "flow2", source: "task1",  target: "gw1" },
-        { id: "flow3", source: "gw1",    target: "task2",  name: "Ja" },
-        { id: "flow4", source: "gw1",    target: "task3",  name: "Nein" },
+        { id: "flow3", source: "gw1",    target: "task2", name: "Ja" },
+        { id: "flow4", source: "gw1",    target: "task3", name: "Nein" },
         { id: "flow5", source: "task2",  target: "end1" },
         { id: "flow6", source: "task3",  target: "end1" }
       ]
     };
 
+    /* ── bpmn-js viewer ───────────────────────────────────── */
     const viewer = new BpmnJS({ container: '#canvas' });
-
     let lastBpmnXml = null;
 
-    const inputJson  = document.getElementById('inputJson');
-    const errorBox   = document.getElementById('errorBox');
+    const inputJson   = document.getElementById('inputJson');
+    const errorBox    = document.getElementById('errorBox');
     const placeholder = document.getElementById('placeholder');
     const downloadBtn = document.getElementById('downloadBtn');
 
+    /* ── API status check ─────────────────────────────────── */
+    async function checkApiStatus() {
+      const dot   = document.getElementById('apiDot');
+      const label = document.getElementById('apiStatus');
+      try {
+        const res = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(EXAMPLE),
+          signal: AbortSignal.timeout(4000),
+        });
+        if (res.ok || res.status === 400) {
+          dot.classList.add('ok');
+          label.textContent = 'aktiv';
+        } else {
+          dot.classList.add('err');
+          label.textContent = 'Fehler (' + res.status + ')';
+        }
+      } catch {
+        dot.classList.add('err');
+        label.textContent = 'nicht erreichbar';
+      }
+    }
+    checkApiStatus();
+
+    /* ── Element-type reference toggle ───────────────────── */
+    document.getElementById('refToggle').addEventListener('click', () => {
+      const body  = document.getElementById('refBody');
+      const arrow = document.getElementById('refArrow');
+      const open  = !body.hidden;
+      body.hidden = open;
+      arrow.textContent = open ? '▶' : '▼';
+      document.getElementById('refToggle').setAttribute('aria-expanded', String(!open));
+    });
+
+    /* ── Error helpers ────────────────────────────────────── */
     function showError(msg) {
-      errorBox.textContent = msg;
+      errorBox.textContent   = msg;
       errorBox.style.display = 'block';
     }
-
     function clearError() {
       errorBox.style.display = 'none';
-      errorBox.textContent = '';
+      errorBox.textContent   = '';
     }
 
+    /* ── Generate diagram ─────────────────────────────────── */
     async function generate() {
       clearError();
       let data;
@@ -221,7 +389,7 @@
         const res = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+          body: JSON.stringify(data),
         });
 
         if (!res.ok) {
@@ -251,15 +419,15 @@
     document.getElementById('downloadBtn').addEventListener('click', () => {
       if (!lastBpmnXml) return;
       const blob = new Blob([lastBpmnXml], { type: 'application/xml' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
       a.download = 'diagram.bpmn';
       a.click();
       URL.revokeObjectURL(url);
     });
 
-    // Load example on startup
+    /* ── Load example on startup ──────────────────────────── */
     inputJson.value = JSON.stringify(EXAMPLE, null, 2);
   </script>
 </body>

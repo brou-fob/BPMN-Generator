@@ -62,7 +62,7 @@ Send a JSON object with the following fields to `POST /api/generate`:
 {
   "name": "Bestellprozess",
   "elements": [
-    { "id": "start1", "type": "startEvent",       "name": "Bestellung eingang" },
+    { "id": "start1", "type": "startEvent",       "name": "Bestellung Eingang" },
     { "id": "task1",  "type": "userTask",          "name": "Bestellung prüfen" },
     { "id": "gw1",    "type": "exclusiveGateway",  "name": "Gültig?" },
     { "id": "task2",  "type": "serviceTask",       "name": "Bestellung bestätigen" },
