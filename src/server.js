@@ -68,6 +68,102 @@ app.post('/api/change-type', (req, res) => {
   }
 });
 
+/**
+ * POST /api/copilot
+ *
+ * Accepts a natural-language prompt and the current process definition JSON.
+ * Uses the OpenAI API (requires OPENAI_API_KEY env var) to return an updated
+ * process definition.
+ *
+ * Request body:
+ * {
+ *   "prompt": "Add a parallel gateway after task1",
+ *   "currentData": { <process definition> }
+ * }
+ *
+ * Response: { "updatedData": <updated process definition> }
+ */
+app.post('/api/copilot', async (req, res) => {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({
+      error: 'CoPilot nicht verfügbar: OPENAI_API_KEY ist nicht konfiguriert.',
+    });
+  }
+
+  const { prompt, currentData } = req.body;
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: 'Kein Prompt angegeben.' });
+  }
+  if (!currentData || typeof currentData !== 'object') {
+    return res.status(400).json({ error: 'Fehlende Prozessdefinition (currentData).' });
+  }
+
+  const systemPrompt = `You are a BPMN process modelling assistant.
+The user will describe changes to make to a process definition in JSON format.
+You must return ONLY the modified JSON object — no markdown, no explanation, no code fences.
+
+The JSON has this structure:
+{
+  "name": "string",
+  "elements": [{ "id": "string", "type": "string", "name": "string", "x?": number, "y?": number }],
+  "flows": [{ "id": "string", "source": "string", "target": "string", "name?": "string" }]
+}
+
+Valid element types: startEvent, endEvent, task, userTask, serviceTask, exclusiveGateway,
+parallelGateway, inclusiveGateway, intermediateTimerEvent, intermediateMessageEvent,
+intermediateSignalEvent, intermediateConditionalEvent, intermediateThrowEvent,
+intermediateMessageThrowEvent, intermediateSignalThrowEvent, intermediateEscalationEvent,
+intermediateLinkEvent, boundaryTimerEvent, boundaryErrorEvent, boundaryMessageEvent,
+boundarySignalEvent.
+
+Return the complete updated JSON object.`;
+
+  try {
+    const openAiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: `Current process definition:\n${JSON.stringify(currentData, null, 2)}\n\nRequested change: ${prompt}`,
+          },
+        ],
+        temperature: 0.2,
+      }),
+    });
+
+    if (!openAiRes.ok) {
+      const errBody = await openAiRes.json().catch(() => ({}));
+      return res.status(502).json({
+        error: 'OpenAI-Fehler: ' + (errBody.error?.message || openAiRes.statusText),
+      });
+    }
+
+    const completion = await openAiRes.json();
+    const rawContent = completion.choices?.[0]?.message?.content ?? '';
+
+    let updatedData;
+    try {
+      updatedData = JSON.parse(rawContent);
+    } catch {
+      return res.status(502).json({
+        error: 'CoPilot hat kein gültiges JSON zurückgegeben. Bitte versuchen Sie es erneut.',
+      });
+    }
+
+    res.json({ updatedData });
+  } catch (err) {
+    res.status(502).json({ error: 'Fehler beim Kontaktieren des CoPilot-Dienstes: ' + err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`BPMN Generator server running on http://localhost:${PORT}`);
 });

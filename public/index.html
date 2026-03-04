@@ -276,6 +276,120 @@
     }
     .placeholder svg { margin-bottom: 12px; }
     .placeholder p { font-size: 0.9rem; line-height: 1.5; }
+
+    /* ── Live-sync indicator ────────────────────────────────── */
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.72rem;
+      color: #888;
+      margin-top: 4px;
+    }
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #ccc;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .live-dot.syncing { background: #f4b400; animation: blink 0.8s infinite; }
+    .live-dot.synced  { background: #34a853; }
+    .live-dot.error   { background: #ea4335; }
+
+    /* ── CoPilot panel ──────────────────────────────────────── */
+    .copilot-section {
+      margin-top: 14px;
+      border-top: 1px solid #f0f0f0;
+      padding-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .copilot-toggle {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #666;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      width: 100%;
+      text-align: left;
+    }
+    .copilot-toggle:hover { color: #1a73e8; }
+    .copilot-body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .copilot-body[hidden] { display: none; }
+    .copilot-history {
+      max-height: 200px;
+      overflow-y: auto;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 8px;
+      background: #fafafa;
+      font-size: 0.78rem;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .copilot-history:empty::before {
+      content: 'Noch keine Nachrichten.';
+      color: #bbb;
+    }
+    .chat-msg {
+      padding: 5px 8px;
+      border-radius: 6px;
+      max-width: 95%;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .chat-msg.user {
+      background: #e8f0fe;
+      color: #1a56c4;
+      align-self: flex-end;
+    }
+    .chat-msg.assistant {
+      background: #e6f4ea;
+      color: #1e6b3c;
+      align-self: flex-start;
+    }
+    .chat-msg.error-msg {
+      background: #fdecea;
+      color: #c62828;
+      align-self: flex-start;
+    }
+    .copilot-input-row {
+      display: flex;
+      gap: 6px;
+    }
+    .copilot-input-row input {
+      flex: 1;
+      padding: 7px 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      outline: none;
+      min-height: auto;
+    }
+    .copilot-input-row input:focus { border-color: #1a73e8; }
+    #copilotSendBtn {
+      background: #1a73e8;
+      color: white;
+      padding: 7px 14px;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    #copilotSendBtn:hover { background: #1558b0; }
+    #copilotSendBtn:disabled { background: #ccc; cursor: default; }
   </style>
 </head>
 <body>
@@ -294,6 +408,8 @@
     <span class="strip-label">Funktionen:</span>
     <span class="chip">🔄 JSON → BPMN 2.0 XML</span>
     <span class="chip">🖥 Live-Vorschau (bpmn.io)</span>
+    <span class="chip">⚡ Echtzeit JSON-Sync</span>
+    <span class="chip">🤖 CoPilot Agent</span>
     <span class="chip">↕ Drag &amp; Drop</span>
     <span class="chip">✏ Typ ändern</span>
     <span class="chip">💾 Änderungen speichern</span>
@@ -309,6 +425,10 @@
     <div class="panel">
       <h2>Prozessdefinition (JSON)</h2>
       <textarea id="inputJson" spellcheck="false" aria-label="JSON Prozessdefinition"></textarea>
+      <span class="live-badge" aria-live="polite">
+        <span class="live-dot" id="liveDot"></span>
+        <span id="liveStatus">Bereit</span>
+      </span>
 
       <div class="actions">
         <button id="generateBtn">▶ Diagramm erzeugen</button>
@@ -355,6 +475,24 @@
               <tr><td><code class="type-tag">boundarySignalEvent</code></td><td>Signal Boundary Event</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- ── CoPilot Agent panel ─────────────────────────────── -->
+      <div class="copilot-section">
+        <button class="copilot-toggle" id="copilotToggle" aria-expanded="false"
+                aria-controls="copilotBody">
+          <span id="copilotArrow" aria-hidden="true">▶</span>
+          🤖 CoPilot Agent
+        </button>
+        <div class="copilot-body" id="copilotBody" hidden>
+          <div class="copilot-history" id="copilotHistory" aria-live="polite" aria-label="CoPilot Chatverlauf"></div>
+          <div class="copilot-input-row">
+            <input type="text" id="copilotInput"
+                   placeholder="z. B. „Füge ein Parallel-Gateway nach task1 ein""
+                   aria-label="CoPilot Eingabe" />
+            <button id="copilotSendBtn" aria-label="Senden">Senden</button>
+          </div>
         </div>
       </div>
     </div>
@@ -724,6 +862,122 @@
 
     /* ── Load example on startup ──────────────────────────── */
     inputJson.value = JSON.stringify(EXAMPLE, null, 2);
+
+    /* ── Live JSON sync (debounced) ───────────────────────── */
+    const liveDot    = document.getElementById('liveDot');
+    const liveStatus = document.getElementById('liveStatus');
+    let liveTimer    = null;
+
+    function setLiveState(state, text) {
+      liveDot.className = 'live-dot' + (state ? ' ' + state : '');
+      liveStatus.textContent = text;
+    }
+
+    inputJson.addEventListener('input', () => {
+      clearTimeout(liveTimer);
+      setLiveState('syncing', 'Synchronisiere…');
+      liveTimer = setTimeout(async () => {
+        let data;
+        try {
+          data = JSON.parse(inputJson.value);
+        } catch {
+          setLiveState('error', 'Ungültiges JSON');
+          return;
+        }
+        try {
+          const res = await fetch('/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) {
+            setLiveState('error', 'Fehler vom Server');
+            return;
+          }
+          const xml = await res.text();
+          await modeler.importXML(xml);
+          modeler.get('canvas').zoom('fit-viewport');
+          placeholder.style.display = 'none';
+          lastBpmnXml = xml;
+          saveBtn.disabled = false;
+          downloadBtn.disabled = false;
+          downloadSvgBtn.disabled = false;
+          clearError();
+          setLiveState('synced', 'Synchronisiert');
+        } catch {
+          setLiveState('error', 'Verbindungsfehler');
+        }
+      }, 800);
+    });
+
+    /* ── CoPilot Agent ────────────────────────────────────── */
+    document.getElementById('copilotToggle').addEventListener('click', () => {
+      const body  = document.getElementById('copilotBody');
+      const arrow = document.getElementById('copilotArrow');
+      const open  = !body.hidden;
+      body.hidden = open;
+      arrow.textContent = open ? '▶' : '▼';
+      document.getElementById('copilotToggle').setAttribute('aria-expanded', String(!open));
+    });
+
+    function addChatMessage(text, role) {
+      const history = document.getElementById('copilotHistory');
+      const msg = document.createElement('div');
+      msg.className = 'chat-msg ' + role;
+      msg.textContent = text;
+      history.appendChild(msg);
+      history.scrollTop = history.scrollHeight;
+    }
+
+    async function sendCopilotPrompt() {
+      const inputEl  = document.getElementById('copilotInput');
+      const sendBtn  = document.getElementById('copilotSendBtn');
+      const prompt   = inputEl.value.trim();
+      if (!prompt) return;
+
+      let currentData;
+      try {
+        currentData = JSON.parse(inputJson.value);
+      } catch {
+        addChatMessage('Fehler: Das aktuelle JSON ist ungültig. Bitte korrigieren Sie es zuerst.', 'error-msg');
+        return;
+      }
+
+      addChatMessage(prompt, 'user');
+      inputEl.value = '';
+      sendBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/copilot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, currentData }),
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          addChatMessage('Fehler: ' + (body.error || 'Unbekannter Fehler'), 'error-msg');
+          return;
+        }
+        const { updatedData } = body;
+        inputJson.value = JSON.stringify(updatedData, null, 2);
+        addChatMessage('Prozessdefinition wurde aktualisiert. Diagramm wird neu generiert…', 'assistant');
+        await generate();
+        setLiveState('synced', 'Synchronisiert');
+      } catch (e) {
+        addChatMessage('Fehler beim Kontaktieren des CoPilot: ' + e.message, 'error-msg');
+      } finally {
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    document.getElementById('copilotSendBtn').addEventListener('click', sendCopilotPrompt);
+    document.getElementById('copilotInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendCopilotPrompt();
+      }
+    });
   </script>
 </body>
 </html>
