@@ -656,14 +656,32 @@
           }
           return el;
         });
+        const originalIds = new Set(data.elements.map((el) => el.id));
+        const MERGE_SUFFIX = '_merge';
+        // Resolves an element id back to an original element id.
+        // Auto-inserted merge gateways have ids of the form "<originalId>_merge";
+        // this function strips that suffix so saved flows reference original elements.
+        function resolveId(id) {
+          if (originalIds.has(id)) return id;
+          if (id.endsWith(MERGE_SUFFIX)) {
+            const base = id.slice(0, -MERGE_SUFFIX.length);
+            if (originalIds.has(base)) return base;
+          }
+          return null;
+        }
         const existingFlowsById = new Map(data.flows.map((f) => [f.id, f]));
         const updatedFlows = elementRegistry.filter((el) => el.waypoints).map((conn) => {
+          const sourceId = resolveId(conn.source.id);
+          const targetId = resolveId(conn.target.id);
+          // Skip flows that reference auto-generated elements or result in a self-loop
+          // (auto-generated "_merge_flow" connections resolve to source === target).
+          if (!sourceId || !targetId || sourceId === targetId) return null;
           const existing = existingFlowsById.get(conn.id);
-          const flow = { id: conn.id, source: conn.source.id, target: conn.target.id };
+          const flow = { id: conn.id, source: sourceId, target: targetId };
           const name = (conn.businessObject && conn.businessObject.name) || (existing && existing.name);
           if (name) flow.name = name;
           return flow;
-        });
+        }).filter(Boolean);
         inputJson.value = JSON.stringify({ ...data, elements: updatedElements, flows: updatedFlows }, null, 2);
       } catch (e) {
         showError('Fehler beim Speichern der Änderungen: ' + e.message);
