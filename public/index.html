@@ -656,7 +656,15 @@
           }
           return el;
         });
-        inputJson.value = JSON.stringify({ ...data, elements: updatedElements }, null, 2);
+        const existingFlowsById = new Map(data.flows.map((f) => [f.id, f]));
+        const updatedFlows = elementRegistry.filter((el) => el.waypoints).map((conn) => {
+          const existing = existingFlowsById.get(conn.id);
+          const flow = { id: conn.id, source: conn.source.id, target: conn.target.id };
+          const name = (conn.businessObject && conn.businessObject.name) || (existing && existing.name);
+          if (name) flow.name = name;
+          return flow;
+        });
+        inputJson.value = JSON.stringify({ ...data, elements: updatedElements, flows: updatedFlows }, null, 2);
       } catch (e) {
         showError('Fehler beim Speichern der Änderungen: ' + e.message);
       }
