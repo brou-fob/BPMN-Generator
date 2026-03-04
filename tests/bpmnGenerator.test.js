@@ -813,3 +813,140 @@ describe('generate() – pools and lanes', () => {
     expect(xml).toContain('name="&lt;Sales&gt;"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Orthogonal flow routing and gateway corner distribution
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: extract ordered waypoints from the BPMNEdge for a given flow id.
+ * Returns an array of {x, y} objects.
+ */
+function getEdgeWaypoints(xml, flowId) {
+  const escapedId = flowId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const edgeRe = new RegExp(`id="${escapedId}_di"[\\s\\S]*?</bpmndi:BPMNEdge>`);
+  const edgeMatch = xml.match(edgeRe);
+  if (!edgeMatch) return null;
+  const waypointRe = /<di:waypoint x="([^"]+)" y="([^"]+)"/g;
+  const waypoints = [];
+  let m;
+  while ((m = waypointRe.exec(edgeMatch[0])) !== null) {
+    waypoints.push({ x: parseFloat(m[1]), y: parseFloat(m[2]) });
+  }
+  return waypoints;
+}
+
+describe('orthogonal flow routing', () => {
+  const BRANCH_DATA = {
+    name: 'Branch Process',
+    elements: [
+      { id: 'start1', type: 'startEvent',      name: 'Start' },
+      { id: 'gw1',   type: 'exclusiveGateway', name: 'Split' },
+      { id: 'taskA', type: 'task',             name: 'Task A' },
+      { id: 'taskB', type: 'task',             name: 'Task B' },
+      { id: 'end1',  type: 'endEvent',         name: 'End'   },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1', target: 'gw1'   },
+      { id: 'f2', source: 'gw1',   target: 'taskA'  },
+      { id: 'f3', source: 'gw1',   target: 'taskB'  },
+      { id: 'f4', source: 'taskA', target: 'end1'   },
+      { id: 'f5', source: 'taskB', target: 'end1'   },
+    ],
+  };
+
+  test('flow between elements at same Y has exactly 2 waypoints', () => {
+    // MINIMAL_DATA: start1 → task1 → end1 are all on row 0 (same Y centre)
+    const xml = generate(MINIMAL_DATA);
+    const wp = getEdgeWaypoints(xml, 'flow1');
+    expect(wp).not.toBeNull();
+    expect(wp).toHaveLength(2);
+  });
+
+  test('flow between elements at different Y has exactly 3 waypoints (orthogonal)', () => {
+    const xml = generate(BRANCH_DATA);
+    // f3 goes to taskB which is placed on a different row (different Y centre) from gw1
+    // The auto-layout puts gw1 and taskA on row 0, taskB on row 1
+    const wpA = getEdgeWaypoints(xml, 'f2'); // gw1 → taskA (same row)
+    const wpB = getEdgeWaypoints(xml, 'f3'); // gw1 → taskB (different row)
+    // At least the branch going to a different row must produce 3 waypoints
+    const counts = [wpA, wpB].map((wp) => wp ? wp.length : 0);
+    expect(Math.max(...counts)).toBe(3);
+  });
+
+  test('orthogonal intermediate waypoint aligns with source exit Y or target entry X', () => {
+    const xml = generate(BRANCH_DATA);
+    const wp2 = getEdgeWaypoints(xml, 'f2');
+    const wp3 = getEdgeWaypoints(xml, 'f3');
+    // For each 3-waypoint flow the middle point must share X with the last waypoint
+    // (horizontal-first) OR share X with the first waypoint (vertical-first).
+    for (const wp of [wp2, wp3].filter((w) => w && w.length === 3)) {
+      const [p1, p2, p3] = wp;
+      const horizontalFirst = p2.x === p3.x && p2.y === p1.y;
+      const verticalFirst   = p2.y === p3.y && p2.x === p1.x;
+      expect(horizontalFirst || verticalFirst).toBe(true);
+    }
+  });
+
+  test('gateway with 2 outgoing flows uses 2 distinct exit corners', () => {
+    const xml = generate(BRANCH_DATA);
+    const wp2 = getEdgeWaypoints(xml, 'f2');
+    const wp3 = getEdgeWaypoints(xml, 'f3');
+    expect(wp2).not.toBeNull();
+    expect(wp3).not.toBeNull();
+    // The first waypoint (exit corner) of f2 and f3 must differ
+    expect(wp2[0].x !== wp3[0].x || wp2[0].y !== wp3[0].y).toBe(true);
+  });
+
+  test('gateway with 3 outgoing flows uses 3 distinct exit corners', () => {
+    const data = {
+      name: 'Three Branch',
+      elements: [
+        { id: 'start1', type: 'startEvent',      name: 'Start' },
+        { id: 'gw1',    type: 'parallelGateway', name: 'Split' },
+        { id: 'taskA',  type: 'task',            name: 'A' },
+        { id: 'taskB',  type: 'task',            name: 'B' },
+        { id: 'taskC',  type: 'task',            name: 'C' },
+        { id: 'end1',   type: 'endEvent',        name: 'End' },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'gw1'   },
+        { id: 'f2', source: 'gw1',   target: 'taskA'  },
+        { id: 'f3', source: 'gw1',   target: 'taskB'  },
+        { id: 'f4', source: 'gw1',   target: 'taskC'  },
+        { id: 'f5', source: 'taskA', target: 'end1'   },
+        { id: 'f6', source: 'taskB', target: 'end1'   },
+        { id: 'f7', source: 'taskC', target: 'end1'   },
+      ],
+    };
+    const xml = generate(data);
+    const exit2 = getEdgeWaypoints(xml, 'f2')[0];
+    const exit3 = getEdgeWaypoints(xml, 'f3')[0];
+    const exit4 = getEdgeWaypoints(xml, 'f4')[0];
+    // All three exit points must be pairwise distinct
+    const points = [exit2, exit3, exit4];
+    for (let i = 0; i < points.length; i++) {
+      for (let j = i + 1; j < points.length; j++) {
+        expect(points[i].x !== points[j].x || points[i].y !== points[j].y).toBe(true);
+      }
+    }
+  });
+
+  test('pool flows with different lane Y coordinates are routed orthogonally', () => {
+    const xml = generate(POOL_DATA);
+    // f2: task1 (lane1) → task2 (lane2) — different Y bands → should have 3 waypoints
+    const wp = getEdgeWaypoints(xml, 'f2');
+    expect(wp).not.toBeNull();
+    expect(wp).toHaveLength(3);
+  });
+
+  test('pool flow intermediate waypoint creates a right-angle bend', () => {
+    const xml = generate(POOL_DATA);
+    const wp = getEdgeWaypoints(xml, 'f2');
+    if (!wp || wp.length < 3) return; // only check 3-waypoint edges
+    const [p1, p2, p3] = wp;
+    const horizontalFirst = p2.x === p3.x && p2.y === p1.y;
+    const verticalFirst   = p2.y === p3.y && p2.x === p1.x;
+    expect(horizontalFirst || verticalFirst).toBe(true);
+  });
+});

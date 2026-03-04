@@ -302,6 +302,132 @@ function computeLayout(elements, flows = []) {
 }
 
 /**
+ * Assigns gateway exit corners to outgoing flows, distributing them across
+ * different corners (right, bottom, top, left) so that at most one flow
+ * starts from each corner when possible.
+ *
+ * @param {{x:number, y:number, width:number, height:number}} gwPos
+ * @param {Array} outFlows - outgoing flows from this gateway
+ * @param {Map} positions - element id → position
+ * @returns {Map<string, string>} flow id → corner ('right'|'bottom'|'top'|'left')
+ */
+function assignGatewayCorners(gwPos, outFlows, positions) {
+  if (outFlows.length <= 1) {
+    return new Map(outFlows.map((f) => [f.id, 'right']));
+  }
+
+  const gwCenterX = gwPos.x + gwPos.width / 2;
+  const gwCenterY = gwPos.y + gwPos.height / 2;
+  const preferenceOrder = ['right', 'bottom', 'top', 'left'];
+
+  // Compute direction angle from gateway center to each target center
+  const flowAngles = outFlows.map((f) => {
+    const tgtPos = positions.get(f.target);
+    const dx = tgtPos ? (tgtPos.x + tgtPos.width / 2) - gwCenterX : 0;
+    const dy = tgtPos ? (tgtPos.y + tgtPos.height / 2) - gwCenterY : 0;
+    // Preferred corner based on dominant direction
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    let preferred;
+    if (absDx >= absDy) {
+      preferred = dx >= 0 ? 'right' : 'left';
+    } else {
+      preferred = dy > 0 ? 'bottom' : 'top';
+    }
+    return { flowId: f.id, preferred, angle: Math.atan2(dy, dx) };
+  });
+
+  // Sort by angle for deterministic assignment
+  flowAngles.sort((a, b) => a.angle - b.angle);
+
+  const assigned = new Map();
+  const usedCorners = new Set();
+
+  // First pass: assign preferred corners (no conflicts)
+  for (const fa of flowAngles) {
+    if (!usedCorners.has(fa.preferred)) {
+      assigned.set(fa.flowId, fa.preferred);
+      usedCorners.add(fa.preferred);
+    }
+  }
+
+  // Second pass: assign remaining flows to any free corner
+  for (const fa of flowAngles) {
+    if (!assigned.has(fa.flowId)) {
+      for (const corner of preferenceOrder) {
+        if (!usedCorners.has(corner)) {
+          assigned.set(fa.flowId, corner);
+          usedCorners.add(corner);
+          break;
+        }
+      }
+      // More than 4 outgoing flows: fall back to right corner
+      if (!assigned.has(fa.flowId)) {
+        assigned.set(fa.flowId, 'right');
+      }
+    }
+  }
+
+  return assigned;
+}
+
+/**
+ * Computes waypoints for a sequence flow edge.
+ * When the source exit point and the target entry point differ in both X and
+ * Y coordinates, an intermediate waypoint is added so that the path consists
+ * of two perpendicular segments (orthogonal / right-angled routing).
+ *
+ * @param {{x:number, y:number, width:number, height:number}} srcPos
+ * @param {{x:number, y:number, width:number, height:number}} tgtPos
+ * @param {string} [corner='right'] - exit corner of source ('right'|'bottom'|'top'|'left')
+ * @returns {Array<[number, number]>} ordered waypoints [x, y]
+ */
+function computeFlowWaypoints(srcPos, tgtPos, corner = 'right') {
+  let srcX, srcY, exitDirection;
+
+  switch (corner) {
+    case 'bottom':
+      srcX = srcPos.x + srcPos.width / 2;
+      srcY = srcPos.y + srcPos.height;
+      exitDirection = 'vertical';
+      break;
+    case 'top':
+      srcX = srcPos.x + srcPos.width / 2;
+      srcY = srcPos.y;
+      exitDirection = 'vertical';
+      break;
+    case 'left':
+      srcX = srcPos.x;
+      srcY = srcPos.y + srcPos.height / 2;
+      exitDirection = 'horizontal';
+      break;
+    default: // 'right'
+      srcX = srcPos.x + srcPos.width;
+      srcY = srcPos.y + srcPos.height / 2;
+      exitDirection = 'horizontal';
+  }
+
+  const tgtX = tgtPos.x;
+  const tgtY = tgtPos.y + tgtPos.height / 2;
+
+  const waypoints = [[srcX, srcY]];
+
+  // Add orthogonal bend only when both X and Y differ
+  if (srcX !== tgtX && srcY !== tgtY) {
+    if (exitDirection === 'horizontal') {
+      // Go horizontal first, then vertical
+      waypoints.push([tgtX, srcY]);
+    } else {
+      // Go vertical first, then horizontal
+      waypoints.push([srcX, tgtY]);
+    }
+  }
+
+  waypoints.push([tgtX, tgtY]);
+  return waypoints;
+}
+
+/**
  * Assigns column numbers to elements using a longest-path topological sort.
  * Used internally for pool-based layout.
  * @param {Array} elements
@@ -561,19 +687,39 @@ ${flowLines.join('\n')}
       );
     }
 
-    // Flow edges (within pool)
+    // Pre-compute gateway corner assignments for gateways with multiple outgoing flows
+    const outFlowsByElement = new Map(poolElements.map((el) => [el.id, []]));
+    for (const flow of poolFlows) {
+      if (outFlowsByElement.has(flow.source)) {
+        outFlowsByElement.get(flow.source).push(flow);
+      }
+    }
+    const flowCorners = new Map(); // flow id → exit corner
+    for (const el of poolElements) {
+      if (el.type.toLowerCase().includes('gateway')) {
+        const outFlows = outFlowsByElement.get(el.id) || [];
+        if (outFlows.length > 1) {
+          const cornerMap = assignGatewayCorners(positions.get(el.id), outFlows, positions);
+          for (const [fId, corner] of cornerMap) {
+            flowCorners.set(fId, corner);
+          }
+        }
+      }
+    }
+
+    // Flow edges within pool with orthogonal routing
     for (const flow of poolFlows) {
       const srcPos = positions.get(flow.source);
       const tgtPos = positions.get(flow.target);
       if (!srcPos || !tgtPos) continue;
-      const srcMidX = srcPos.x + srcPos.width;
-      const srcMidY = srcPos.y + srcPos.height / 2;
-      const tgtMidX = tgtPos.x;
-      const tgtMidY = tgtPos.y + tgtPos.height / 2;
+      const corner = flowCorners.get(flow.id) || 'right';
+      const waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+      const waypointXml = waypoints
+        .map(([x, y]) => `        <di:waypoint x="${x}" y="${y}" />`)
+        .join('\n');
       diagramEdgeLines.push(
         `      <bpmndi:BPMNEdge id="${escapeXml(flow.id)}_di" bpmnElement="${escapeXml(flow.id)}">
-        <di:waypoint x="${srcMidX}" y="${srcMidY}" />
-        <di:waypoint x="${tgtMidX}" y="${tgtMidY}" />
+${waypointXml}
       </bpmndi:BPMNEdge>`
       );
     }
@@ -671,17 +817,37 @@ function generate(data) {
       </bpmndi:BPMNShape>`;
   });
 
-  // Build diagram edges XML
+  // Pre-compute gateway corner assignments for all gateways with multiple outgoing flows
+  const outFlowsByElement = new Map(data.elements.map((el) => [el.id, []]));
+  for (const flow of data.flows) {
+    if (outFlowsByElement.has(flow.source)) {
+      outFlowsByElement.get(flow.source).push(flow);
+    }
+  }
+  const flowCorners = new Map(); // flow id → exit corner
+  for (const el of data.elements) {
+    if (el.type.toLowerCase().includes('gateway')) {
+      const outFlows = outFlowsByElement.get(el.id) || [];
+      if (outFlows.length > 1) {
+        const cornerMap = assignGatewayCorners(positions.get(el.id), outFlows, positions);
+        for (const [fId, corner] of cornerMap) {
+          flowCorners.set(fId, corner);
+        }
+      }
+    }
+  }
+
+  // Build diagram edges XML with orthogonal routing
   const edgeLines = data.flows.map((flow) => {
     const srcPos = positions.get(flow.source);
     const tgtPos = positions.get(flow.target);
-    const srcMidX = srcPos.x + srcPos.width;
-    const srcMidY = srcPos.y + srcPos.height / 2;
-    const tgtMidX = tgtPos.x;
-    const tgtMidY = tgtPos.y + tgtPos.height / 2;
+    const corner = flowCorners.get(flow.id) || 'right';
+    const waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+    const waypointXml = waypoints
+      .map(([x, y]) => `        <di:waypoint x="${x}" y="${y}" />`)
+      .join('\n');
     return `      <bpmndi:BPMNEdge id="${escapeXml(flow.id)}_di" bpmnElement="${escapeXml(flow.id)}">
-        <di:waypoint x="${srcMidX}" y="${srcMidY}" />
-        <di:waypoint x="${tgtMidX}" y="${tgtMidY}" />
+${waypointXml}
       </bpmndi:BPMNEdge>`;
   });
 
