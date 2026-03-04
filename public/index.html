@@ -184,6 +184,10 @@
     #resetBtn { background: #f1f3f4; color: #333; }
     #resetBtn:hover { background: #e0e0e0; }
 
+    #saveBtn { background: #9c27b0; color: white; }
+    #saveBtn:hover { background: #7b1fa2; }
+    #saveBtn:disabled { background: #ccc; cursor: default; }
+
     #downloadBtn { background: #34a853; color: white; }
     #downloadBtn:hover { background: #2d8f47; }
     #downloadBtn:disabled { background: #ccc; cursor: default; }
@@ -292,6 +296,7 @@
     <span class="chip">🖥 Live-Vorschau (bpmn.io)</span>
     <span class="chip">↕ Drag &amp; Drop</span>
     <span class="chip">✏ Typ ändern</span>
+    <span class="chip">💾 Änderungen speichern</span>
     <span class="chip">⬇ BPMN-Download</span>
     <span class="chip">⬇ SVG-Export</span>
     <span class="chip">21 Element-Typen</span>
@@ -308,6 +313,7 @@
       <div class="actions">
         <button id="generateBtn">▶ Diagramm erzeugen</button>
         <button id="resetBtn">↺ Beispiel laden</button>
+        <button id="saveBtn" disabled>💾 Änderungen speichern</button>
         <button id="downloadBtn" disabled>⬇ BPMN herunterladen</button>
         <button id="downloadSvgBtn" disabled>⬇ SVG herunterladen</button>
       </div>
@@ -428,6 +434,7 @@
     const inputJson      = document.getElementById('inputJson');
     const errorBox       = document.getElementById('errorBox');
     const placeholder    = document.getElementById('placeholder');
+    const saveBtn        = document.getElementById('saveBtn');
     const downloadBtn    = document.getElementById('downloadBtn');
     const downloadSvgBtn = document.getElementById('downloadSvgBtn');
 
@@ -512,6 +519,7 @@
         modeler.get('canvas').zoom('fit-viewport');
         placeholder.style.display = 'none';
         lastBpmnXml = xml;
+        saveBtn.disabled = false;
         downloadBtn.disabled = false;
         downloadSvgBtn.disabled = false;
       } catch (e) {
@@ -620,6 +628,38 @@
     document.getElementById('resetBtn').addEventListener('click', () => {
       inputJson.value = JSON.stringify(EXAMPLE, null, 2);
       clearError();
+    });
+
+    /* ── Save changes ─────────────────────────────────────── */
+    saveBtn.addEventListener('click', () => {
+      if (!lastBpmnXml) return;
+      let data;
+      try {
+        data = JSON.parse(inputJson.value);
+      } catch (e) {
+        showError('Ungültiges JSON: ' + e.message);
+        return;
+      }
+      try {
+        const elementRegistry = modeler.get('elementRegistry');
+        const updatedElements = data.elements.map((el) => {
+          const shape = elementRegistry.get(el.id);
+          if (shape && shape.x !== undefined && shape.y !== undefined &&
+              shape.width !== undefined && shape.height !== undefined) {
+            return {
+              ...el,
+              x: Math.round(shape.x),
+              y: Math.round(shape.y),
+              width:  Math.round(shape.width),
+              height: Math.round(shape.height),
+            };
+          }
+          return el;
+        });
+        inputJson.value = JSON.stringify({ ...data, elements: updatedElements }, null, 2);
+      } catch (e) {
+        showError('Fehler beim Speichern der Änderungen: ' + e.message);
+      }
     });
 
     document.getElementById('downloadBtn').addEventListener('click', async () => {

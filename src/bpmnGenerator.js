@@ -317,6 +317,19 @@ function computeLayout(elements, flows = []) {
     pos.x = x;
   }
 
+  // Override auto-computed positions with any custom positions defined on elements
+  for (const el of elements) {
+    if (el.x !== undefined && el.y !== undefined) {
+      const pos = positions.get(el.id);
+      if (pos) {
+        pos.x = el.x;
+        pos.y = el.y;
+        if (el.width !== undefined) pos.width = el.width;
+        if (el.height !== undefined) pos.height = el.height;
+      }
+    }
+  }
+
   return positions;
 }
 
@@ -391,10 +404,16 @@ function assignGatewayCorners(gwPos, outFlows, positions) {
 }
 
 /**
- * Computes waypoints for a sequence flow edge.
- * When the source exit point and the target entry point differ in both X and
- * Y coordinates, an intermediate waypoint is added so that the path consists
- * of two perpendicular segments (orthogonal / right-angled routing).
+ * Computes waypoints for a sequence flow edge so that the flow always meets
+ * the target element perpendicularly (orthogonally) at the element boundary.
+ *
+ * - Horizontal exit (right/left corner): the flow approaches the target from
+ *   the left or right side with a horizontal last segment.  When the Y
+ *   coordinates differ, two intermediate waypoints at the midpoint X are used
+ *   so the vertical segment never runs along an element's edge.
+ * - Vertical exit (top/bottom corner): the flow approaches the target from
+ *   the top or bottom with a vertical last segment.  One intermediate waypoint
+ *   aligns horizontally with the target center before descending/ascending.
  *
  * @param {{x:number, y:number, width:number, height:number}} srcPos
  * @param {{x:number, y:number, width:number, height:number}} tgtPos
@@ -426,21 +445,39 @@ function computeFlowWaypoints(srcPos, tgtPos, corner = 'right') {
       exitDirection = 'horizontal';
   }
 
-  const tgtX = tgtPos.x;
-  const tgtY = tgtPos.y + tgtPos.height / 2;
+  // Determine target entry point so the last segment is perpendicular to the
+  // target element's boundary.
+  const tgtCenterX = tgtPos.x + tgtPos.width / 2;
+  const tgtCenterY = tgtPos.y + tgtPos.height / 2;
+  let tgtX, tgtY;
+
+  if (exitDirection === 'horizontal') {
+    // Enter target from the left or right side (horizontal last segment)
+    tgtX = srcX <= tgtCenterX ? tgtPos.x : tgtPos.x + tgtPos.width;
+    tgtY = tgtCenterY;
+  } else {
+    // Enter target from the top or bottom side (vertical last segment)
+    tgtX = tgtCenterX;
+    tgtY = srcY <= tgtCenterY ? tgtPos.y : tgtPos.y + tgtPos.height;
+  }
 
   const waypoints = [[srcX, srcY]];
 
-  // Add orthogonal bend only when both X and Y differ
-  if (srcX !== tgtX && srcY !== tgtY) {
-    if (exitDirection === 'horizontal') {
-      // Go horizontal first, then vertical
-      waypoints.push([tgtX, srcY]);
-    } else {
-      // Go vertical first, then horizontal
-      waypoints.push([srcX, tgtY]);
-    }
+  if (exitDirection === 'horizontal' && srcY !== tgtY) {
+    // Use two intermediate waypoints at the midpoint X so that:
+    //  – the exit segment leaves the source horizontally, and
+    //  – the entry segment meets the target horizontally (perpendicular).
+    // Math.round produces integer pixel coordinates that render cleanly
+    // in SVG without sub-pixel blurring; any ±0.5px offset is imperceptible.
+    const midX = Math.round((srcX + tgtX) / 2);
+    waypoints.push([midX, srcY]);
+    waypoints.push([midX, tgtY]);
+  } else if (exitDirection === 'vertical' && srcX !== tgtX) {
+    // Move horizontally to the target centre X first, then approach
+    // the target top/bottom perpendicularly (vertical last segment).
+    waypoints.push([tgtX, srcY]);
   }
+  // else: source and target are already aligned – a single straight segment.
 
   waypoints.push([tgtX, tgtY]);
   return waypoints;
@@ -638,6 +675,19 @@ function computePoolLayout(data) {
       }
 
       pos.x = x;
+    }
+
+    // Override auto-computed positions with any custom positions defined on elements
+    for (const el of poolElements) {
+      if (el.x !== undefined && el.y !== undefined) {
+        const pos = positions.get(el.id);
+        if (pos) {
+          pos.x = el.x;
+          pos.y = el.y;
+          if (el.width !== undefined) pos.width = el.width;
+          if (el.height !== undefined) pos.height = el.height;
+        }
+      }
     }
 
     // Calculate total pool width using adaptive column widths

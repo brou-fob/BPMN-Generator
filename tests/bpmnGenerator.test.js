@@ -240,6 +240,74 @@ describe('changeElementType()', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Custom element positions (x, y overrides)
+// ---------------------------------------------------------------------------
+
+describe('custom element positions', () => {
+  /**
+   * Helper: extract dc:Bounds x and y for a given element id from BPMN XML.
+   */
+  function getShapeBoundsXY(xml, elementId) {
+    const re = new RegExp(
+      `id="${elementId}_di"[\\s\\S]*?<dc:Bounds[^>]*x="([^"]+)"[^>]*y="([^"]+)"`
+    );
+    const m = xml.match(re);
+    return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]) } : null;
+  }
+
+  test('elements with x and y fields use those coordinates in the output', () => {
+    const data = {
+      name: 'Custom Pos',
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start', x: 50,  y: 100 },
+        { id: 'end1',   type: 'endEvent',   name: 'End',   x: 400, y: 100 },
+      ],
+      flows: [{ id: 'flow1', source: 'start1', target: 'end1' }],
+    };
+    const xml = generate(data);
+    const startBounds = getShapeBoundsXY(xml, 'start1');
+    const endBounds   = getShapeBoundsXY(xml, 'end1');
+    expect(startBounds).not.toBeNull();
+    expect(endBounds).not.toBeNull();
+    expect(startBounds.x).toBe(50);
+    expect(startBounds.y).toBe(100);
+    expect(endBounds.x).toBe(400);
+    expect(endBounds.y).toBe(100);
+  });
+
+  test('elements without x and y fall back to auto-layout', () => {
+    // MINIMAL_DATA has no x/y on elements → auto-layout is used
+    const xml = generate(MINIMAL_DATA);
+    const bounds = getShapeBoundsXY(xml, 'start1');
+    expect(bounds).not.toBeNull();
+    // Auto-layout startX is 150 for the first element
+    expect(bounds.x).toBe(150);
+  });
+
+  test('mix: elements with x/y override only those positions', () => {
+    const data = {
+      name: 'Mix Pos',
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start', x: 50, y: 200 },
+        { id: 'task1',  type: 'task',       name: 'Task' },  // no x/y → auto-layout
+        { id: 'end1',   type: 'endEvent',   name: 'End',  x: 600, y: 200 },
+      ],
+      flows: [
+        { id: 'flow1', source: 'start1', target: 'task1' },
+        { id: 'flow2', source: 'task1',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    const startBounds = getShapeBoundsXY(xml, 'start1');
+    const endBounds   = getShapeBoundsXY(xml, 'end1');
+    expect(startBounds.x).toBe(50);
+    expect(startBounds.y).toBe(200);
+    expect(endBounds.x).toBe(600);
+    expect(endBounds.y).toBe(200);
+  });
+});
+
 /**
  * Helper: extract the dc:Bounds y value for a given element id from BPMN XML.
  */
@@ -863,15 +931,52 @@ describe('orthogonal flow routing', () => {
     expect(wp).toHaveLength(2);
   });
 
-  test('flow between elements at different Y has exactly 3 waypoints (orthogonal)', () => {
+  test('vertical-exit flow between elements at different Y has exactly 3 waypoints', () => {
     const xml = generate(BRANCH_DATA);
-    // f3 goes to taskB which is placed on a different row (different Y centre) from gw1
-    // The auto-layout puts gw1 and taskA on row 0, taskB on row 1
-    const wpA = getEdgeWaypoints(xml, 'f2'); // gw1 → taskA (same row)
-    const wpB = getEdgeWaypoints(xml, 'f3'); // gw1 → taskB (different row)
-    // At least the branch going to a different row must produce 3 waypoints
+    // f3 goes from gw1 (bottom corner) to taskB on a different row.
+    // Vertical exit with different X → 3 waypoints (horizontal segment then vertical entry).
+    const wpA = getEdgeWaypoints(xml, 'f2'); // gw1 → taskA (same row, right corner)
+    const wpB = getEdgeWaypoints(xml, 'f3'); // gw1 → taskB (different row, bottom corner)
+    // f3 must produce 3 waypoints; f2 is same-Y → 2 waypoints
     const counts = [wpA, wpB].map((wp) => wp ? wp.length : 0);
     expect(Math.max(...counts)).toBe(3);
+  });
+
+  test('horizontal-exit flow between elements at different Y has exactly 4 waypoints', () => {
+    // A flow exiting horizontally but with different Y needs 4 waypoints so that
+    // both the exit from the source and the entry into the target are perpendicular.
+    const xml = generate(POOL_DATA);
+    // f2: task1 (lane1, exits right) → task2 (lane2) — different Y bands
+    const wp = getEdgeWaypoints(xml, 'f2');
+    expect(wp).not.toBeNull();
+    expect(wp).toHaveLength(4);
+  });
+
+  test('last flow waypoint lies on the target element boundary (perpendicular entry)', () => {
+    // Verify that the last waypoint of each flow is exactly on the boundary of
+    // the target shape (not inside or outside it).
+    function getShapeBounds(xml, elementId) {
+      const escapedId = elementId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`id="${escapedId}_di"[\\s\\S]*?x="([^"]+)"[^>]*y="([^"]+)"[^>]*width="([^"]+)"[^>]*height="([^"]+)"`);
+      const m = xml.match(re);
+      return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), width: parseFloat(m[3]), height: parseFloat(m[4]) } : null;
+    }
+    const xml = generate(POOL_DATA);
+    const flowIds = ['f2', 'f3'];
+    const flowTargets = { f2: 'task2', f3: 'end1' };
+    for (const fId of flowIds) {
+      const wp = getEdgeWaypoints(xml, fId);
+      if (!wp) continue;
+      const last = wp[wp.length - 1];
+      const bounds = getShapeBounds(xml, flowTargets[fId]);
+      if (!bounds) continue;
+      // Last waypoint must be on one of the four edges of the target
+      const onLeft   = last.x === bounds.x && last.y >= bounds.y && last.y <= bounds.y + bounds.height;
+      const onRight  = last.x === bounds.x + bounds.width && last.y >= bounds.y && last.y <= bounds.y + bounds.height;
+      const onTop    = last.y === bounds.y && last.x >= bounds.x && last.x <= bounds.x + bounds.width;
+      const onBottom = last.y === bounds.y + bounds.height && last.x >= bounds.x && last.x <= bounds.x + bounds.width;
+      expect(onLeft || onRight || onTop || onBottom).toBe(true);
+    }
   });
 
   test('orthogonal intermediate waypoint aligns with source exit Y or target entry X', () => {
@@ -934,17 +1039,21 @@ describe('orthogonal flow routing', () => {
 
   test('pool flows with different lane Y coordinates are routed orthogonally', () => {
     const xml = generate(POOL_DATA);
-    // f2: task1 (lane1) → task2 (lane2) — different Y bands → should have 3 waypoints
+    // f2: task1 (lane1) → task2 (lane2) — different Y bands.
+    // Horizontal exit with different Y uses 4 waypoints (midX routing) so that
+    // the flow meets the target perpendicularly (horizontal last segment).
     const wp = getEdgeWaypoints(xml, 'f2');
     expect(wp).not.toBeNull();
-    expect(wp).toHaveLength(3);
+    expect(wp).toHaveLength(4);
   });
 
   test('pool flow intermediate waypoint creates a right-angle bend', () => {
     const xml = generate(POOL_DATA);
     const wp = getEdgeWaypoints(xml, 'f2');
-    if (!wp || wp.length < 3) return; // only check 3-waypoint edges
+    if (!wp || wp.length < 3) return; // only check flows with bends
     const [p1, p2, p3] = wp;
+    // For 4-waypoint midX routing: first 3 points satisfy horizontalFirst
+    // For 3-waypoint vertical-first routing: verticalFirst holds
     const horizontalFirst = p2.x === p3.x && p2.y === p1.y;
     const verticalFirst   = p2.y === p3.y && p2.x === p1.x;
     expect(horizontalFirst || verticalFirst).toBe(true);
