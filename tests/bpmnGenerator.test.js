@@ -1147,3 +1147,216 @@ describe('generate() – merge gateway insertion', () => {
     expect(xml).toMatch(/<bpmn:parallelGateway[^>]*id="gwB_merge"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Auto-gateway insertion for non-gateway elements with multiple incoming flows
+// ---------------------------------------------------------------------------
+
+describe('insertMergeGateways() – non-gateway elements with multiple incoming flows', () => {
+  // Two tasks flow into a single task (task_target). The split is performed by
+  // an exclusiveGateway (gw_split), so the auto-inserted gateway should also
+  // be an exclusiveGateway.
+  const TASK_MERGE_EXCLUSIVE = {
+    elements: [
+      { id: 'start1',      type: 'startEvent'      },
+      { id: 'gw_split',   type: 'exclusiveGateway' },
+      { id: 'taskA',      type: 'task'             },
+      { id: 'taskB',      type: 'task'             },
+      { id: 'task_target', type: 'task'            },
+      { id: 'end1',       type: 'endEvent'         },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1',      target: 'gw_split'    },
+      { id: 'f2', source: 'gw_split',    target: 'taskA'       },
+      { id: 'f3', source: 'gw_split',    target: 'taskB'       },
+      { id: 'f4', source: 'taskA',       target: 'task_target' },
+      { id: 'f5', source: 'taskB',       target: 'task_target' },
+      { id: 'f6', source: 'task_target', target: 'end1'        },
+    ],
+  };
+
+  // Two tasks flow into a single task via a parallelGateway split.
+  const TASK_MERGE_PARALLEL = {
+    elements: [
+      { id: 'start1',      type: 'startEvent'     },
+      { id: 'gw_par',     type: 'parallelGateway' },
+      { id: 'taskA',      type: 'task'            },
+      { id: 'taskB',      type: 'task'            },
+      { id: 'task_target', type: 'task'           },
+      { id: 'end1',       type: 'endEvent'        },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1',      target: 'gw_par'     },
+      { id: 'f2', source: 'gw_par',      target: 'taskA'      },
+      { id: 'f3', source: 'gw_par',      target: 'taskB'      },
+      { id: 'f4', source: 'taskA',       target: 'task_target'},
+      { id: 'f5', source: 'taskB',       target: 'task_target'},
+      { id: 'f6', source: 'task_target', target: 'end1'       },
+    ],
+  };
+
+  // Two tasks flow into a single task with no preceding gateway (default).
+  const TASK_MERGE_NO_GATEWAY = {
+    elements: [
+      { id: 'start1',      type: 'startEvent' },
+      { id: 'taskA',       type: 'task'       },
+      { id: 'taskB',       type: 'task'       },
+      { id: 'task_target', type: 'task'       },
+      { id: 'end1',        type: 'endEvent'   },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1',      target: 'taskA'       },
+      { id: 'f2', source: 'start1',      target: 'taskB'       },
+      { id: 'f3', source: 'taskA',       target: 'task_target' },
+      { id: 'f4', source: 'taskB',       target: 'task_target' },
+      { id: 'f5', source: 'task_target', target: 'end1'        },
+    ],
+  };
+
+  test('inserts a merge gateway before a non-gateway element with multiple incoming flows', () => {
+    const { elements } = insertMergeGateways(TASK_MERGE_EXCLUSIVE.elements, TASK_MERGE_EXCLUSIVE.flows);
+    const mergeGw = elements.find((e) => e.id === 'task_target_merge');
+    expect(mergeGw).toBeDefined();
+  });
+
+  test('merge gateway for non-gateway element uses type of preceding exclusiveGateway', () => {
+    const { elements } = insertMergeGateways(TASK_MERGE_EXCLUSIVE.elements, TASK_MERGE_EXCLUSIVE.flows);
+    const mergeGw = elements.find((e) => e.id === 'task_target_merge');
+    expect(mergeGw.type).toBe('exclusiveGateway');
+  });
+
+  test('merge gateway for non-gateway element uses type of preceding parallelGateway', () => {
+    const { elements } = insertMergeGateways(TASK_MERGE_PARALLEL.elements, TASK_MERGE_PARALLEL.flows);
+    const mergeGw = elements.find((e) => e.id === 'task_target_merge');
+    expect(mergeGw.type).toBe('parallelGateway');
+  });
+
+  test('merge gateway defaults to exclusiveGateway when no preceding gateway exists', () => {
+    const { elements } = insertMergeGateways(TASK_MERGE_NO_GATEWAY.elements, TASK_MERGE_NO_GATEWAY.flows);
+    const mergeGw = elements.find((e) => e.id === 'task_target_merge');
+    expect(mergeGw).toBeDefined();
+    expect(mergeGw.type).toBe('exclusiveGateway');
+  });
+
+  test('merge gateway is inserted immediately before the non-gateway element', () => {
+    const { elements } = insertMergeGateways(TASK_MERGE_EXCLUSIVE.elements, TASK_MERGE_EXCLUSIVE.flows);
+    const mergeIdx = elements.findIndex((e) => e.id === 'task_target_merge');
+    const origIdx  = elements.findIndex((e) => e.id === 'task_target');
+    expect(mergeIdx).toBe(origIdx - 1);
+  });
+
+  test('incoming flows are redirected to the merge gateway', () => {
+    const { flows } = insertMergeGateways(TASK_MERGE_EXCLUSIVE.elements, TASK_MERGE_EXCLUSIVE.flows);
+    const f4 = flows.find((f) => f.id === 'f4');
+    const f5 = flows.find((f) => f.id === 'f5');
+    expect(f4.target).toBe('task_target_merge');
+    expect(f5.target).toBe('task_target_merge');
+  });
+
+  test('a new connecting flow is added from the merge gateway to the original element', () => {
+    const { flows } = insertMergeGateways(TASK_MERGE_EXCLUSIVE.elements, TASK_MERGE_EXCLUSIVE.flows);
+    const connectFlow = flows.find((f) => f.id === 'task_target_merge_flow');
+    expect(connectFlow).toBeDefined();
+    expect(connectFlow.source).toBe('task_target_merge');
+    expect(connectFlow.target).toBe('task_target');
+  });
+
+  test('non-gateway element with only one incoming flow is not affected', () => {
+    const { elements, flows } = insertMergeGateways(
+      TASK_MERGE_EXCLUSIVE.elements,
+      TASK_MERGE_EXCLUSIVE.flows
+    );
+    // taskA and taskB each have only one incoming flow – no merge gw for them
+    expect(elements.find((e) => e.id === 'taskA_merge')).toBeUndefined();
+    expect(elements.find((e) => e.id === 'taskB_merge')).toBeUndefined();
+  });
+
+  test('merge gateway for non-gateway element inherits laneRef', () => {
+    const dataWithLane = {
+      elements: [
+        { id: 'taskA',       type: 'task', laneRef: 'lane1' },
+        { id: 'taskB',       type: 'task', laneRef: 'lane1' },
+        { id: 'task_target', type: 'task', laneRef: 'lane1' },
+        { id: 'end1',        type: 'endEvent'               },
+      ],
+      flows: [
+        { id: 'f1', source: 'taskA',       target: 'task_target' },
+        { id: 'f2', source: 'taskB',       target: 'task_target' },
+        { id: 'f3', source: 'task_target', target: 'end1'        },
+      ],
+    };
+    const { elements } = insertMergeGateways(dataWithLane.elements, dataWithLane.flows);
+    const mergeGw = elements.find((e) => e.id === 'task_target_merge');
+    expect(mergeGw).toBeDefined();
+    expect(mergeGw.laneRef).toBe('lane1');
+  });
+});
+
+describe('generate() – auto-gateway for non-gateway elements with multiple incoming flows', () => {
+  const NON_GW_MERGE_PROCESS = {
+    name: 'Non-Gateway Merge Process',
+    elements: [
+      { id: 'start1',      type: 'startEvent'      },
+      { id: 'gw_split',   type: 'exclusiveGateway' },
+      { id: 'taskA',      type: 'task'             },
+      { id: 'taskB',      type: 'task'             },
+      { id: 'task_target', type: 'task'            },
+      { id: 'end1',       type: 'endEvent'         },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1',      target: 'gw_split'    },
+      { id: 'f2', source: 'gw_split',    target: 'taskA'       },
+      { id: 'f3', source: 'gw_split',    target: 'taskB'       },
+      { id: 'f4', source: 'taskA',       target: 'task_target' },
+      { id: 'f5', source: 'taskB',       target: 'task_target' },
+      { id: 'f6', source: 'task_target', target: 'end1'        },
+    ],
+  };
+
+  test('generated XML contains an auto-inserted merge gateway for a task element', () => {
+    const xml = generate(NON_GW_MERGE_PROCESS);
+    expect(xml).toContain('id="task_target_merge"');
+  });
+
+  test('auto-inserted merge gateway has the same type as the preceding gateway', () => {
+    const xml = generate(NON_GW_MERGE_PROCESS);
+    expect(xml).toMatch(/<bpmn:exclusiveGateway[^>]*id="task_target_merge"/);
+  });
+
+  test('auto-inserted merge gateway has a BPMNShape in the diagram', () => {
+    const xml = generate(NON_GW_MERGE_PROCESS);
+    expect(xml).toContain('bpmnElement="task_target_merge"');
+  });
+
+  test('connecting flow from merge gateway to task appears in XML', () => {
+    const xml = generate(NON_GW_MERGE_PROCESS);
+    expect(xml).toContain('id="task_target_merge_flow"');
+    expect(xml).toContain('sourceRef="task_target_merge"');
+    expect(xml).toContain('targetRef="task_target"');
+  });
+
+  test('parallel gateway variant produces a parallelGateway merge for a task', () => {
+    const data = {
+      name: 'Parallel Task Merge',
+      elements: [
+        { id: 'start1',      type: 'startEvent'     },
+        { id: 'gw_par',     type: 'parallelGateway' },
+        { id: 'taskA',      type: 'task'            },
+        { id: 'taskB',      type: 'task'            },
+        { id: 'task_target', type: 'task'           },
+        { id: 'end1',       type: 'endEvent'        },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1',      target: 'gw_par'      },
+        { id: 'f2', source: 'gw_par',      target: 'taskA'       },
+        { id: 'f3', source: 'gw_par',      target: 'taskB'       },
+        { id: 'f4', source: 'taskA',       target: 'task_target' },
+        { id: 'f5', source: 'taskB',       target: 'task_target' },
+        { id: 'f6', source: 'task_target', target: 'end1'        },
+      ],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('id="task_target_merge"');
+    expect(xml).toMatch(/<bpmn:parallelGateway[^>]*id="task_target_merge"/);
+  });
+});

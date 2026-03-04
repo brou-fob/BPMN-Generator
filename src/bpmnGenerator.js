@@ -684,11 +684,51 @@ function computePoolLayout(data) {
 }
 
 /**
- * Automatically inserts a merge gateway before any gateway that has both
- * multiple incoming flows and multiple outgoing flows. The inserted merge
- * gateway receives all the original incoming flows; a single new flow
- * connects the merge gateway to the original (now split-only) gateway.
- * The merge gateway has the same type as the original gateway.
+ * Traverses the flow graph backwards (BFS) from an element to find the type
+ * of the nearest upstream gateway. Falls back to 'exclusiveGateway' when no
+ * upstream gateway exists.
+ *
+ * @param {string} elementId - The element to start from.
+ * @param {Map} inFlowsByElement - Map of element id → incoming flows.
+ * @param {Map} elementMap - Map of element id → element object.
+ * @returns {string} Gateway type (e.g. 'exclusiveGateway', 'parallelGateway').
+ */
+function findPrecedingGatewayType(elementId, inFlowsByElement, elementMap) {
+  const visited = new Set([elementId]);
+  const queue = [];
+
+  for (const flow of (inFlowsByElement.get(elementId) || [])) {
+    if (!visited.has(flow.source)) {
+      queue.push(flow.source);
+      visited.add(flow.source);
+    }
+  }
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const el = elementMap.get(current);
+    if (!el) continue;
+    if (el.type.toLowerCase().includes('gateway')) return el.type;
+
+    for (const flow of (inFlowsByElement.get(current) || [])) {
+      if (!visited.has(flow.source)) {
+        queue.push(flow.source);
+        visited.add(flow.source);
+      }
+    }
+  }
+
+  return 'exclusiveGateway';
+}
+
+/**
+ * Automatically inserts a merge gateway before any element that has multiple
+ * incoming flows. For gateway elements the insertion only happens when the
+ * gateway also has multiple outgoing flows (combined join-split case). For
+ * non-gateway elements (tasks, events, …) the insertion happens whenever two
+ * or more flows converge on the element. The inserted merge gateway uses the
+ * same type as the nearest upstream gateway in the flow, defaulting to
+ * 'exclusiveGateway' when no upstream gateway is found.
  *
  * @param {Array} elements - The process elements array.
  * @param {Array} flows - The sequence flows array.
@@ -704,29 +744,37 @@ function insertMergeGateways(elements, flows) {
 
   const newElements = [...elements];
   const newFlows = [...flows];
+  const elementMap = new Map(elements.map((el) => [el.id, el]));
 
   for (const el of elements) {
-    if (!el.type.toLowerCase().includes('gateway')) continue;
     const inFlows = inFlowsByElement.get(el.id) || [];
     const outFlows = outFlowsByElement.get(el.id) || [];
-    if (inFlows.length < 2 || outFlows.length < 2) continue;
+    const isGateway = el.type.toLowerCase().includes('gateway');
 
-    // Create a merge gateway of the same type, to be placed before el
+    // For gateways: only act on combined join-split (multi-in AND multi-out).
+    if (isGateway && (inFlows.length < 2 || outFlows.length < 2)) continue;
+    // For non-gateways: only act when two or more flows converge.
+    if (!isGateway && inFlows.length < 2) continue;
+
+    // Determine the gateway type to insert.
+    const gwType = isGateway ? el.type : findPrecedingGatewayType(el.id, inFlowsByElement, elementMap);
+
+    // Create a merge gateway to be placed immediately before el.
     const mergeGwId = `${el.id}_merge`;
-    const mergeGw = { id: mergeGwId, type: el.type };
+    const mergeGw = { id: mergeGwId, type: gwType };
     if (el.laneRef) mergeGw.laneRef = el.laneRef;
 
-    // Insert merge gateway immediately before the original gateway
+    // Insert merge gateway immediately before the original element.
     const idx = newElements.findIndex((e) => e.id === el.id);
     newElements.splice(idx, 0, mergeGw);
 
-    // Redirect all incoming flows to point to the merge gateway
+    // Redirect all incoming flows to point to the merge gateway.
     for (const flow of inFlows) {
       const flowIdx = newFlows.findIndex((f) => f.id === flow.id);
       newFlows[flowIdx] = { ...newFlows[flowIdx], target: mergeGwId };
     }
 
-    // Add a connecting flow from the merge gateway to the original gateway
+    // Add a connecting flow from the merge gateway to the original element.
     newFlows.push({ id: `${el.id}_merge_flow`, source: mergeGwId, target: el.id });
   }
 
