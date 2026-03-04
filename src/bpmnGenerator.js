@@ -684,6 +684,56 @@ function computePoolLayout(data) {
 }
 
 /**
+ * Automatically inserts a merge gateway before any gateway that has both
+ * multiple incoming flows and multiple outgoing flows. The inserted merge
+ * gateway receives all the original incoming flows; a single new flow
+ * connects the merge gateway to the original (now split-only) gateway.
+ * The merge gateway has the same type as the original gateway.
+ *
+ * @param {Array} elements - The process elements array.
+ * @param {Array} flows - The sequence flows array.
+ * @returns {{ elements: Array, flows: Array }} Updated elements and flows.
+ */
+function insertMergeGateways(elements, flows) {
+  const inFlowsByElement = new Map(elements.map((el) => [el.id, []]));
+  const outFlowsByElement = new Map(elements.map((el) => [el.id, []]));
+  for (const flow of flows) {
+    if (inFlowsByElement.has(flow.target)) inFlowsByElement.get(flow.target).push(flow);
+    if (outFlowsByElement.has(flow.source)) outFlowsByElement.get(flow.source).push(flow);
+  }
+
+  const newElements = [...elements];
+  const newFlows = [...flows];
+
+  for (const el of elements) {
+    if (!el.type.toLowerCase().includes('gateway')) continue;
+    const inFlows = inFlowsByElement.get(el.id) || [];
+    const outFlows = outFlowsByElement.get(el.id) || [];
+    if (inFlows.length < 2 || outFlows.length < 2) continue;
+
+    // Create a merge gateway of the same type, to be placed before el
+    const mergeGwId = `${el.id}_merge`;
+    const mergeGw = { id: mergeGwId, type: el.type };
+    if (el.laneRef) mergeGw.laneRef = el.laneRef;
+
+    // Insert merge gateway immediately before the original gateway
+    const idx = newElements.findIndex((e) => e.id === el.id);
+    newElements.splice(idx, 0, mergeGw);
+
+    // Redirect all incoming flows to point to the merge gateway
+    for (const flow of inFlows) {
+      const flowIdx = newFlows.findIndex((f) => f.id === flow.id);
+      newFlows[flowIdx] = { ...newFlows[flowIdx], target: mergeGwId };
+    }
+
+    // Add a connecting flow from the merge gateway to the original gateway
+    newFlows.push({ id: `${el.id}_merge_flow`, source: mergeGwId, target: el.id });
+  }
+
+  return { elements: newElements, flows: newFlows };
+}
+
+/**
  * Generates a BPMN 2.0 XML string for a pool/lane-based process.
  * Called internally by generate() when the input defines pools.
  *
@@ -874,14 +924,17 @@ function generate(data) {
   validate(data);
 
   if (Array.isArray(data.pools) && data.pools.length > 0) {
-    return generateWithPools(data);
+    const { elements: mergedElements, flows: mergedFlows } = insertMergeGateways(data.elements, data.flows);
+    return generateWithPools({ ...data, elements: mergedElements, flows: mergedFlows });
   }
 
+  const { elements, flows } = insertMergeGateways(data.elements, data.flows);
+
   const processId = 'Process_1';
-  const positions = computeLayout(data.elements, data.flows);
+  const positions = computeLayout(elements, flows);
 
   // Build process elements XML
-  const elementLines = data.elements.map((el) => {
+  const elementLines = elements.map((el) => {
     const tag = ELEMENT_TYPES[el.type];
     const name = el.name ? ` name="${escapeXml(el.name)}"` : '';
     const attachedToRef = el.attachedToRef ? ` attachedToRef="${escapeXml(el.attachedToRef)}"` : '';
@@ -893,13 +946,13 @@ function generate(data) {
   });
 
   // Build sequence flows XML
-  const flowLines = data.flows.map((flow) => {
+  const flowLines = flows.map((flow) => {
     const name = flow.name ? ` name="${escapeXml(flow.name)}"` : '';
     return `    <bpmn:sequenceFlow id="${escapeXml(flow.id)}" sourceRef="${escapeXml(flow.source)}" targetRef="${escapeXml(flow.target)}"${name} />`;
   });
 
   // Build diagram shapes XML
-  const shapeLines = data.elements.map((el) => {
+  const shapeLines = elements.map((el) => {
     const pos = positions.get(el.id);
     const isGateway = el.type.toLowerCase().includes('gateway');
     const isEvent = el.type.endsWith('Event');
@@ -911,14 +964,14 @@ function generate(data) {
   });
 
   // Pre-compute gateway corner assignments for all gateways with multiple outgoing flows
-  const outFlowsByElement = new Map(data.elements.map((el) => [el.id, []]));
-  for (const flow of data.flows) {
+  const outFlowsByElement = new Map(elements.map((el) => [el.id, []]));
+  for (const flow of flows) {
     if (outFlowsByElement.has(flow.source)) {
       outFlowsByElement.get(flow.source).push(flow);
     }
   }
   const flowCorners = new Map(); // flow id → exit corner
-  for (const el of data.elements) {
+  for (const el of elements) {
     if (el.type.toLowerCase().includes('gateway')) {
       const outFlows = outFlowsByElement.get(el.id) || [];
       if (outFlows.length > 1) {
@@ -931,7 +984,7 @@ function generate(data) {
   }
 
   // Build diagram edges XML with orthogonal routing
-  const edgeLines = data.flows.map((flow) => {
+  const edgeLines = flows.map((flow) => {
     const srcPos = positions.get(flow.source);
     const tgtPos = positions.get(flow.target);
     const corner = flowCorners.get(flow.id) || 'right';
@@ -989,4 +1042,4 @@ function changeElementType(data, elementId, newType) {
   return { ...data, elements: updatedElements };
 }
 
-module.exports = { generate, validate, changeElementType, ELEMENT_TYPES, EVENT_DEFINITIONS };
+module.exports = { generate, validate, changeElementType, insertMergeGateways, ELEMENT_TYPES, EVENT_DEFINITIONS };
