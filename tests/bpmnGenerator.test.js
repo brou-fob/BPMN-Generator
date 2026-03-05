@@ -1469,3 +1469,188 @@ describe('generate() – auto-gateway for non-gateway elements with multiple inc
     expect(xml).toMatch(/<bpmn:parallelGateway[^>]*id="task_target_merge"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Parallel Flow Overlap Resolution
+// ---------------------------------------------------------------------------
+
+describe('parallel flow overlap resolution (resolveParallelFlowOverlaps)', () => {
+  // Two parallel branches from a gateway converge on a join gateway.
+  // Without the fix both flows would share an identical final horizontal
+  // segment at Y = joinGateway.centerY, making them visually indistinguishable.
+  const PARALLEL_JOIN_DATA = {
+    name: 'Parallel Join',
+    elements: [
+      { id: 'start1', type: 'startEvent'      },
+      { id: 'gw1',   type: 'parallelGateway' },
+      { id: 'taskA', type: 'task'            },
+      { id: 'taskB', type: 'task'            },
+      { id: 'gw2',   type: 'parallelGateway' },
+      { id: 'end1',  type: 'endEvent'        },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1', target: 'gw1'   },
+      { id: 'f2', source: 'gw1',   target: 'taskA'  },
+      { id: 'f3', source: 'gw1',   target: 'taskB'  },
+      { id: 'f4', source: 'taskA', target: 'gw2'    },
+      { id: 'f5', source: 'taskB', target: 'gw2'    },
+      { id: 'f6', source: 'gw2',   target: 'end1'   },
+    ],
+  };
+
+  test('converging flows enter the join gateway at distinct Y positions', () => {
+    const xml = generate(PARALLEL_JOIN_DATA);
+    const wp4 = getEdgeWaypoints(xml, 'f4');
+    const wp5 = getEdgeWaypoints(xml, 'f5');
+    expect(wp4).not.toBeNull();
+    expect(wp5).not.toBeNull();
+    // The last waypoints of the two flows must differ in Y so they do not overlap.
+    const lastY4 = wp4[wp4.length - 1].y;
+    const lastY5 = wp5[wp5.length - 1].y;
+    expect(lastY4).not.toBe(lastY5);
+  });
+
+  test('converging flows last waypoints lie on the join gateway boundary', () => {
+    const xml = generate(PARALLEL_JOIN_DATA);
+    function getShapeBounds(id) {
+      const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`id="${escapedId}_di"[\\s\\S]*?x="([^"]+)"[^>]*y="([^"]+)"[^>]*width="([^"]+)"[^>]*height="([^"]+)"`);
+      const m = xml.match(re);
+      return m ? { x: parseFloat(m[1]), y: parseFloat(m[2]), width: parseFloat(m[3]), height: parseFloat(m[4]) } : null;
+    }
+    for (const fId of ['f4', 'f5']) {
+      const wp = getEdgeWaypoints(xml, fId);
+      if (!wp) continue;
+      const last = wp[wp.length - 1];
+      const bounds = getShapeBounds('gw2');
+      if (!bounds) continue;
+      const onLeft   = last.x === bounds.x && last.y >= bounds.y && last.y <= bounds.y + bounds.height;
+      const onRight  = last.x === bounds.x + bounds.width && last.y >= bounds.y && last.y <= bounds.y + bounds.height;
+      const onTop    = last.y === bounds.y && last.x >= bounds.x && last.x <= bounds.x + bounds.width;
+      const onBottom = last.y === bounds.y + bounds.height && last.x >= bounds.x && last.x <= bounds.x + bounds.width;
+      expect(onLeft || onRight || onTop || onBottom).toBe(true);
+    }
+  });
+
+  test('two converging flows to a task-sized target are separated by at least elementHeight', () => {
+    // Use a join task (not a gateway) to check the full 80 px separation.
+    const data = {
+      name: 'Task Convergence',
+      elements: [
+        { id: 'start1', type: 'startEvent'      },
+        { id: 'gw1',   type: 'exclusiveGateway' },
+        { id: 'taskA', type: 'task'            },
+        { id: 'taskB', type: 'task'            },
+        { id: 'taskC', type: 'task'            },  // join target (task-sized, 80 px)
+        { id: 'end1',  type: 'endEvent'        },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'gw1'   },
+        { id: 'f2', source: 'gw1',   target: 'taskA'  },
+        { id: 'f3', source: 'gw1',   target: 'taskB'  },
+        { id: 'f4', source: 'taskA', target: 'taskC'  },
+        { id: 'f5', source: 'taskB', target: 'taskC'  },
+        { id: 'f6', source: 'taskC', target: 'end1'   },
+      ],
+    };
+    // generate() auto-inserts a merge gateway before taskC (because it has
+    // multiple incoming flows), redirecting f4 and f5 to taskC_merge.
+    // The overlap resolution applies to flows into taskC_merge, so check
+    // that the two flows arrive at distinct Y positions there.
+    const xml = generate(data);
+    const wp4 = getEdgeWaypoints(xml, 'f4');
+    const wp5 = getEdgeWaypoints(xml, 'f5');
+    expect(wp4).not.toBeNull();
+    expect(wp5).not.toBeNull();
+    // Regardless of redirection, the final Y positions of the two flows must differ.
+    const lastY4 = wp4[wp4.length - 1].y;
+    const lastY5 = wp5[wp5.length - 1].y;
+    expect(lastY4).not.toBe(lastY5);
+  });
+
+  test('converging flows use only orthogonal (right-angle) bends – no diagonal segments', () => {
+    const xml = generate(PARALLEL_JOIN_DATA);
+    for (const fId of ['f4', 'f5']) {
+      const wp = getEdgeWaypoints(xml, fId);
+      if (!wp || wp.length < 2) continue;
+      for (let k = 0; k < wp.length - 1; k++) {
+        const dx = wp[k + 1].x - wp[k].x;
+        const dy = wp[k + 1].y - wp[k].y;
+        // Each segment must be purely horizontal (dy === 0) or purely vertical (dx === 0).
+        expect(dx === 0 || dy === 0).toBe(true);
+      }
+    }
+  });
+
+  test('three converging flows to the same target each use a distinct entry Y', () => {
+    const data = {
+      name: 'Three Branch Join',
+      elements: [
+        { id: 'start1', type: 'startEvent'      },
+        { id: 'gw1',   type: 'parallelGateway' },
+        { id: 'taskA', type: 'task'            },
+        { id: 'taskB', type: 'task'            },
+        { id: 'taskC', type: 'task'            },
+        { id: 'gw2',   type: 'parallelGateway' },
+        { id: 'end1',  type: 'endEvent'        },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'gw1'   },
+        { id: 'f2', source: 'gw1',   target: 'taskA'  },
+        { id: 'f3', source: 'gw1',   target: 'taskB'  },
+        { id: 'f4', source: 'gw1',   target: 'taskC'  },
+        { id: 'f5', source: 'taskA', target: 'gw2'    },
+        { id: 'f6', source: 'taskB', target: 'gw2'    },
+        { id: 'f7', source: 'taskC', target: 'gw2'    },
+        { id: 'f8', source: 'gw2',   target: 'end1'   },
+      ],
+    };
+    const xml = generate(data);
+    const lastYs = ['f5', 'f6', 'f7'].map((fId) => {
+      const wp = getEdgeWaypoints(xml, fId);
+      return wp ? wp[wp.length - 1].y : null;
+    }).filter((y) => y !== null);
+    // All three flows must arrive at distinct Y positions.
+    expect(new Set(lastYs).size).toBe(3);
+  });
+
+  test('single incoming flow to a target is not affected', () => {
+    // MINIMAL_DATA: each target has at most one incoming flow.
+    const xml = generate(MINIMAL_DATA);
+    const wp = getEdgeWaypoints(xml, 'flow1');
+    // flow1 (start1 → task1) is a straight horizontal – must still be 2 waypoints.
+    expect(wp).not.toBeNull();
+    expect(wp).toHaveLength(2);
+  });
+
+  test('convergence flows in a pool also have distinct entry Y positions', () => {
+    const data = {
+      name: 'Pool Parallel',
+      pools: [{ id: 'pool1', name: 'Pool', lanes: [{ id: 'lane1', name: 'Lane' }] }],
+      elements: [
+        { id: 'start1', type: 'startEvent',      laneRef: 'lane1' },
+        { id: 'gw1',   type: 'parallelGateway', laneRef: 'lane1' },
+        { id: 'taskA', type: 'task',            laneRef: 'lane1' },
+        { id: 'taskB', type: 'task',            laneRef: 'lane1' },
+        { id: 'gw2',   type: 'parallelGateway', laneRef: 'lane1' },
+        { id: 'end1',  type: 'endEvent',         laneRef: 'lane1' },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'gw1'  },
+        { id: 'f2', source: 'gw1',   target: 'taskA' },
+        { id: 'f3', source: 'gw1',   target: 'taskB' },
+        { id: 'f4', source: 'taskA', target: 'gw2'   },
+        { id: 'f5', source: 'taskB', target: 'gw2'   },
+        { id: 'f6', source: 'gw2',   target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    const wp4 = getEdgeWaypoints(xml, 'f4');
+    const wp5 = getEdgeWaypoints(xml, 'f5');
+    expect(wp4).not.toBeNull();
+    expect(wp5).not.toBeNull();
+    const lastY4 = wp4[wp4.length - 1].y;
+    const lastY5 = wp5[wp5.length - 1].y;
+    expect(lastY4).not.toBe(lastY5);
+  });
+});

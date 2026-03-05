@@ -484,6 +484,96 @@ function computeFlowWaypoints(srcPos, tgtPos, corner = 'right') {
 }
 
 /**
+ * Resolves visual overlaps between parallel flows that converge on the same
+ * target element.  When multiple sequence flows all enter a target from the
+ * left side at the target's vertical centre (Y = tgtCenterY), they share an
+ * identical final horizontal segment and become indistinguishable in the
+ * diagram.  This function spreads the entry Y positions of those flows across
+ * the full height of the target's left boundary so that adjacent approach
+ * paths are separated by at least LAYOUT.elementHeight (80 px) for
+ * task-sized targets, using orthogonal corners instead of curved lines.
+ *
+ * Only flows that already enter from the left (horizontal approach) at the
+ * target centre are adjusted; flows using a vertical exit corner are left
+ * unchanged.
+ *
+ * @param {Array} flows - All sequence flows in the process.
+ * @param {Map} positions - Element id → position.
+ * @param {Map<string, [number,number][]>} waypointMap - Flow id → waypoints
+ *   array; modified in place.
+ */
+function resolveParallelFlowOverlaps(flows, positions, waypointMap) {
+  // Group incoming flows by target element.
+  const flowsByTarget = new Map();
+  for (const flow of flows) {
+    if (!flowsByTarget.has(flow.target)) flowsByTarget.set(flow.target, []);
+    flowsByTarget.get(flow.target).push(flow);
+  }
+
+  for (const [targetId, inFlows] of flowsByTarget) {
+    if (inFlows.length <= 1) continue;
+
+    const tgtPos = positions.get(targetId);
+    if (!tgtPos) continue;
+
+    const tgtCenterY = tgtPos.y + tgtPos.height / 2;
+    const tgtLeft = tgtPos.x;
+
+    // Identify flows that enter the target from the left at the centre Y.
+    // These are the only ones that produce overlapping horizontal segments.
+    const leftEntryFlows = inFlows.filter((flow) => {
+      const wp = waypointMap.get(flow.id);
+      if (!wp || wp.length < 2) return false;
+      const [lx, ly] = wp[wp.length - 1];
+      return Math.abs(ly - tgtCenterY) < 0.5 && Math.abs(lx - tgtLeft) < 0.5;
+    });
+
+    if (leftEntryFlows.length <= 1) continue;
+
+    // Sort by source exit Y (ascending) so that flows arriving from above
+    // (lower source Y) are assigned entry points near the top edge (lower
+    // entry Y) and flows arriving from below get entry points near the bottom.
+    leftEntryFlows.sort((a, b) => {
+      const aWp = waypointMap.get(a.id);
+      const bWp = waypointMap.get(b.id);
+      return (aWp ? aWp[0][1] : 0) - (bWp ? bWp[0][1] : 0);
+    });
+
+    const n = leftEntryFlows.length;
+    leftEntryFlows.forEach((flow, i) => {
+      // Distribute entry points evenly from the top edge to the bottom edge
+      // of the target's left boundary.  For n = 2 this gives a separation
+      // of exactly tgtPos.height (≥ 80 px for tasks).
+      const entryY = n === 1
+        ? tgtCenterY
+        : tgtPos.y + tgtPos.height * i / (n - 1);
+
+      // The centre slot keeps its original route – nothing to change.
+      if (Math.abs(entryY - tgtCenterY) < 0.5) return;
+
+      const wp = waypointMap.get(flow.id);
+      const [srcExitX, srcExitY] = wp[0];
+
+      if (Math.abs(srcExitY - entryY) < 0.5) {
+        // Source exit already aligned with new entry Y → straight horizontal.
+        waypointMap.set(flow.id, [[srcExitX, srcExitY], [tgtLeft, entryY]]);
+        return;
+      }
+
+      // Route: exit source horizontally → adjust Y at midpoint → enter target.
+      // Two right-angle corners ensure the path never uses curves.
+      const midX = Math.round((srcExitX + tgtLeft) / 2);
+      waypointMap.set(flow.id, [
+        [srcExitX, srcExitY],
+        [midX, srcExitY],
+        [midX, entryY],
+        [tgtLeft, entryY],
+      ]);
+    });
+  }
+}
+
+/**
  * Assigns column numbers to elements using a longest-path topological sort.
  * Used internally for pool-based layout.
  * @param {Array} elements
@@ -948,13 +1038,21 @@ ${flowLines.join('\n')}
       }
     }
 
-    // Flow edges within pool with orthogonal routing
+    // Compute waypoints for all pool flows, then resolve parallel-flow overlaps.
+    const poolWaypointMap = new Map();
     for (const flow of poolFlows) {
       const srcPos = positions.get(flow.source);
       const tgtPos = positions.get(flow.target);
       if (!srcPos || !tgtPos) continue;
       const corner = flowCorners.get(flow.id) || 'right';
-      const waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+      poolWaypointMap.set(flow.id, computeFlowWaypoints(srcPos, tgtPos, corner));
+    }
+    resolveParallelFlowOverlaps(poolFlows, positions, poolWaypointMap);
+
+    // Flow edges within pool with orthogonal routing
+    for (const flow of poolFlows) {
+      const waypoints = poolWaypointMap.get(flow.id);
+      if (!waypoints) continue;
       const waypointXml = waypoints
         .map(([x, y]) => `        <di:waypoint x="${x}" y="${y}" />`)
         .join('\n');
@@ -1081,12 +1179,21 @@ function generate(data) {
     }
   }
 
-  // Build diagram edges XML with orthogonal routing
-  const edgeLines = flows.map((flow) => {
+  // Compute waypoints for all flows, then resolve parallel-flow overlaps so
+  // that converging flows enter the same target at distinct Y positions.
+  const waypointMap = new Map();
+  for (const flow of flows) {
     const srcPos = positions.get(flow.source);
     const tgtPos = positions.get(flow.target);
+    if (!srcPos || !tgtPos) continue;
     const corner = flowCorners.get(flow.id) || 'right';
-    const waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+    waypointMap.set(flow.id, computeFlowWaypoints(srcPos, tgtPos, corner));
+  }
+  resolveParallelFlowOverlaps(flows, positions, waypointMap);
+
+  // Build diagram edges XML with orthogonal routing
+  const edgeLines = flows.map((flow) => {
+    const waypoints = waypointMap.get(flow.id) || [];
     const waypointXml = waypoints
       .map(([x, y]) => `        <di:waypoint x="${x}" y="${y}" />`)
       .join('\n');
