@@ -83,7 +83,7 @@
       border-radius: 8px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.15);
       padding: 12px;
-      min-width: 220px;
+      width: 388px;
     }
     .type-selector-title {
       font-size: 0.78rem;
@@ -93,19 +93,54 @@
       color: #666;
       margin-bottom: 8px;
     }
-    .type-selector select {
-      width: 100%;
-      padding: 6px 8px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 0.875rem;
-      margin-bottom: 8px;
-      outline: none;
-      cursor: pointer;
-      min-height: auto;
-      flex: none;
+    .type-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 10px;
     }
-    .type-selector select:focus { border-color: #1a73e8; }
+    .type-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 4px;
+      padding: 6px 4px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      cursor: pointer;
+      background: white;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
+      outline: none;
+    }
+    .type-card:hover {
+      border-color: #1a73e8;
+      background: #e8f0fe;
+    }
+    .type-card:focus-visible {
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.35);
+    }
+    .type-card.selected {
+      border-color: #1a73e8;
+      background: #e8f0fe;
+      box-shadow: 0 0 0 2px rgba(26,115,232,0.25);
+    }
+    .type-card svg {
+      width: 44px;
+      height: 44px;
+      overflow: visible;
+    }
+    .type-card-label {
+      font-size: 0.6rem;
+      color: #555;
+      text-align: center;
+      line-height: 1.2;
+      word-break: break-word;
+    }
     .type-selector-actions {
       display: flex;
       gap: 6px;
@@ -514,29 +549,7 @@
   <!-- ── Type selector popup ─────────────────────────────── -->
   <div id="typeSelector" class="type-selector" hidden aria-label="Element-Typ ändern" role="dialog">
     <div class="type-selector-title">Element-Typ ändern</div>
-    <select id="typeSelect" aria-label="Neuer Element-Typ">
-      <option value="startEvent">Start Event</option>
-      <option value="endEvent">End Event</option>
-      <option value="task">Generic Task</option>
-      <option value="userTask">User Task</option>
-      <option value="serviceTask">Service Task</option>
-      <option value="exclusiveGateway">Exclusive Gateway (XOR)</option>
-      <option value="parallelGateway">Parallel Gateway (AND)</option>
-      <option value="inclusiveGateway">Inclusive Gateway (OR)</option>
-      <option value="intermediateTimerEvent">Timer Intermediate Catch Event</option>
-      <option value="intermediateMessageEvent">Message Intermediate Catch Event</option>
-      <option value="intermediateSignalEvent">Signal Intermediate Catch Event</option>
-      <option value="intermediateConditionalEvent">Conditional Intermediate Catch Event</option>
-      <option value="intermediateThrowEvent">Intermediate Throw Event</option>
-      <option value="intermediateMessageThrowEvent">Message Intermediate Throw Event</option>
-      <option value="intermediateSignalThrowEvent">Signal Intermediate Throw Event</option>
-      <option value="intermediateEscalationEvent">Escalation Intermediate Throw Event</option>
-      <option value="intermediateLinkEvent">Link Intermediate Throw Event</option>
-      <option value="boundaryTimerEvent">Timer Boundary Event</option>
-      <option value="boundaryErrorEvent">Error Boundary Event</option>
-      <option value="boundaryMessageEvent">Message Boundary Event</option>
-      <option value="boundarySignalEvent">Signal Boundary Event</option>
-    </select>
+    <div id="typeGrid" class="type-grid" role="listbox" aria-label="Element-Typ auswählen"></div>
     <div class="type-selector-actions">
       <button id="typeSelectorCancel">Abbrechen</button>
       <button id="typeSelectorApply">Übernehmen</button>
@@ -677,20 +690,199 @@
       'bpmn:InclusiveGateway':  'inclusiveGateway',
     };
 
+    /* SVG symbol definitions for each supported element type */
+    const ELEMENT_SYMBOLS = [
+      {
+        key: 'startEvent', label: 'Start Event',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>`
+      },
+      {
+        key: 'endEvent', label: 'End Event',
+        svg: `<circle cx="22" cy="22" r="16" fill="white" stroke="#333" stroke-width="5"/>`
+      },
+      {
+        key: 'task', label: 'Task',
+        svg: `<rect x="3" y="9" width="38" height="26" rx="4" fill="white" stroke="#333" stroke-width="2"/>`
+      },
+      {
+        key: 'userTask', label: 'User Task',
+        svg: `<rect x="3" y="9" width="38" height="26" rx="4" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="11" cy="18" r="3.5" fill="none" stroke="#555" stroke-width="1.5"/>
+              <path d="M5.5 26.5 C5.5 20.5 16.5 20.5 16.5 26.5" fill="none" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'serviceTask', label: 'Service Task',
+        svg: `<rect x="3" y="9" width="38" height="26" rx="4" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="11" cy="18" r="5" fill="none" stroke="#555" stroke-width="1.5"/>
+              <circle cx="11" cy="18" r="2" fill="#555"/>
+              <line x1="11" y1="11" x2="11" y2="13" stroke="#555" stroke-width="1.5"/>
+              <line x1="11" y1="23" x2="11" y2="25" stroke="#555" stroke-width="1.5"/>
+              <line x1="4" y1="18" x2="6" y2="18" stroke="#555" stroke-width="1.5"/>
+              <line x1="16" y1="18" x2="18" y2="18" stroke="#555" stroke-width="1.5"/>
+              <line x1="6" y1="13" x2="7.5" y2="14.5" stroke="#555" stroke-width="1.5"/>
+              <line x1="14.5" y1="21.5" x2="16" y2="23" stroke="#555" stroke-width="1.5"/>
+              <line x1="16" y1="13" x2="14.5" y2="14.5" stroke="#555" stroke-width="1.5"/>
+              <line x1="7.5" y1="21.5" x2="6" y2="23" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'exclusiveGateway', label: 'Exklusiv (XOR)',
+        svg: `<polygon points="22,2 42,22 22,42 2,22" fill="white" stroke="#333" stroke-width="2"/>
+              <line x1="14" y1="14" x2="30" y2="30" stroke="#333" stroke-width="3.5"/>
+              <line x1="30" y1="14" x2="14" y2="30" stroke="#333" stroke-width="3.5"/>`
+      },
+      {
+        key: 'parallelGateway', label: 'Parallel (AND)',
+        svg: `<polygon points="22,2 42,22 22,42 2,22" fill="white" stroke="#333" stroke-width="2"/>
+              <line x1="22" y1="11" x2="22" y2="33" stroke="#333" stroke-width="3.5"/>
+              <line x1="11" y1="22" x2="33" y2="22" stroke="#333" stroke-width="3.5"/>`
+      },
+      {
+        key: 'inclusiveGateway', label: 'Inklusiv (OR)',
+        svg: `<polygon points="22,2 42,22 22,42 2,22" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="9" fill="none" stroke="#333" stroke-width="2.5"/>`
+      },
+      {
+        key: 'intermediateTimerEvent', label: 'Timer (Catch)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <circle cx="22" cy="22" r="9" fill="none" stroke="#555" stroke-width="1.2"/>
+              <line x1="22" y1="22" x2="22" y2="14" stroke="#555" stroke-width="1.5"/>
+              <line x1="22" y1="22" x2="28" y2="22" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'intermediateMessageEvent', label: 'Msg (Catch)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <rect x="13" y="16" width="18" height="12" rx="1" fill="white" stroke="#555" stroke-width="1.5"/>
+              <polyline points="13,16 22,24 31,16" fill="none" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'intermediateSignalEvent', label: 'Signal (Catch)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <polygon points="22,13 31,30 13,30" fill="none" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'intermediateConditionalEvent', label: 'Cond. (Catch)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <rect x="14" y="15" width="15" height="14" rx="1" fill="white" stroke="#555" stroke-width="1.5"/>
+              <line x1="17" y1="19" x2="26" y2="19" stroke="#555" stroke-width="1.2"/>
+              <line x1="17" y1="22" x2="26" y2="22" stroke="#555" stroke-width="1.2"/>
+              <line x1="17" y1="25" x2="26" y2="25" stroke="#555" stroke-width="1.2"/>`
+      },
+      {
+        key: 'intermediateThrowEvent', label: 'Throw Event',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="#ccc" stroke="#333" stroke-width="1.5"/>`
+      },
+      {
+        key: 'intermediateMessageThrowEvent', label: 'Msg (Throw)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <rect x="13" y="16" width="18" height="12" rx="1" fill="#555" stroke="#555" stroke-width="1"/>
+              <polyline points="13,16 22,24 31,16" fill="none" stroke="white" stroke-width="1.5"/>`
+      },
+      {
+        key: 'intermediateSignalThrowEvent', label: 'Signal (Throw)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <polygon points="22,13 31,30 13,30" fill="#555" stroke="#555" stroke-width="1"/>`
+      },
+      {
+        key: 'intermediateEscalationEvent', label: 'Escalation',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <polygon points="22,13 29,30 22,25 15,30" fill="#555"/>`
+      },
+      {
+        key: 'intermediateLinkEvent', label: 'Link (Throw)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <polygon points="14,18 25,18 25,15 33,22 25,29 25,26 14,26" fill="#555"/>`
+      },
+      {
+        key: 'boundaryTimerEvent', label: 'Timer (Bndry)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2" stroke-dasharray="4 3"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <circle cx="22" cy="22" r="9" fill="none" stroke="#555" stroke-width="1.2"/>
+              <line x1="22" y1="22" x2="22" y2="14" stroke="#555" stroke-width="1.5"/>
+              <line x1="22" y1="22" x2="28" y2="22" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'boundaryErrorEvent', label: 'Error (Bndry)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2" stroke-dasharray="4 3"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <polyline points="25,13 18,22 25,22 19,31" fill="none" stroke="#555" stroke-width="2" stroke-linejoin="round"/>`
+      },
+      {
+        key: 'boundaryMessageEvent', label: 'Msg (Bndry)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2" stroke-dasharray="4 3"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <rect x="13" y="16" width="18" height="12" rx="1" fill="white" stroke="#555" stroke-width="1.5"/>
+              <polyline points="13,16 22,24 31,16" fill="none" stroke="#555" stroke-width="1.5"/>`
+      },
+      {
+        key: 'boundarySignalEvent', label: 'Signal (Bndry)',
+        svg: `<circle cx="22" cy="22" r="18" fill="white" stroke="#333" stroke-width="2" stroke-dasharray="4 3"/>
+              <circle cx="22" cy="22" r="13" fill="white" stroke="#333" stroke-width="1.5"/>
+              <polygon points="22,13 31,30 13,30" fill="none" stroke="#555" stroke-width="1.5"/>`
+      },
+    ];
+
     const typeSelector   = document.getElementById('typeSelector');
-    const typeSelect     = document.getElementById('typeSelect');
+    const typeGrid       = document.getElementById('typeGrid');
     let pendingElementId = null;
-    let isOpeningPopup = false;
+    let selectedTypeKey  = null;
+    let isOpeningPopup   = false;
+
+    /* Build the symbol grid once on page load */
+    (function buildTypeGrid() {
+      ELEMENT_SYMBOLS.forEach(({ key, label, svg }) => {
+        const card = document.createElement('div');
+        card.className = 'type-card';
+        card.dataset.type = key;
+        card.setAttribute('role', 'option');
+        card.setAttribute('aria-selected', 'false');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('title', label);
+        card.innerHTML =
+          `<svg viewBox="0 0 44 44" aria-hidden="true">${svg}</svg>` +
+          `<span class="type-card-label">${label}</span>`;
+        card.addEventListener('click', () => {
+          selectedTypeKey = key;
+          typeGrid.querySelectorAll('.type-card').forEach(c => {
+            c.classList.remove('selected');
+            c.setAttribute('aria-selected', 'false');
+          });
+          card.classList.add('selected');
+          card.setAttribute('aria-selected', 'true');
+        });
+        card.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            card.click();
+          }
+        });
+        typeGrid.appendChild(card);
+      });
+    })();
 
     function showTypeSelector(elementId, currentType, x, y) {
       pendingElementId = elementId;
-      typeSelect.value = currentType || '';
+      selectedTypeKey  = currentType || null;
+      typeGrid.querySelectorAll('.type-card').forEach(card => {
+        const sel = card.dataset.type === currentType;
+        card.classList.toggle('selected', sel);
+        card.setAttribute('aria-selected', String(sel));
+      });
       // Position popup near click, clamped to viewport
-      const popupW = 240, popupH = 130;
+      const popupW = 396, popupH = 420;
       typeSelector.style.left = Math.min(x, window.innerWidth  - popupW - 8) + 'px';
       typeSelector.style.top  = Math.min(y, window.innerHeight - popupH - 8) + 'px';
       typeSelector.hidden = false;
-      typeSelect.focus();
+      const focusTarget = typeGrid.querySelector('.type-card.selected') || typeGrid.querySelector('.type-card');
+      if (focusTarget) focusTarget.focus();
     }
 
     function hideTypeSelector() {
@@ -714,7 +906,8 @@
 
     document.getElementById('typeSelectorApply').addEventListener('click', async () => {
       if (!pendingElementId) return;
-      const newType = typeSelect.value;
+      const newType = selectedTypeKey;
+      if (!newType) { hideTypeSelector(); return; }
       let currentData;
       try {
         currentData = JSON.parse(inputJson.value);
