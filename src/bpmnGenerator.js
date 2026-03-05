@@ -72,6 +72,10 @@ const LAYOUT = {
   poolGap: 30,
   minPoolWidth: 600,
   poolContentPadding: 50,
+  // Text annotation dimensions for the 'application' attribute
+  annotationWidth: 100,
+  annotationHeight: 50,
+  annotationGap: 20,
 };
 
 /**
@@ -989,6 +993,23 @@ function generateWithPools(data) {
       return `    <bpmn:sequenceFlow id="${escapeXml(flow.id)}" sourceRef="${escapeXml(flow.source)}" targetRef="${escapeXml(flow.target)}"${name} />`;
     });
 
+    // Text annotations and associations for elements with an 'application' property
+    const poolAnnotationLines = [];
+    const poolAssociationLines = [];
+    for (const el of poolElements) {
+      if (!el.application) continue;
+      const annotId = `TextAnnotation_${el.id}`;
+      const assocId = `Association_${el.id}`;
+      poolAnnotationLines.push(
+        `    <bpmn:textAnnotation id="${escapeXml(annotId)}">\n      <bpmn:text>${escapeXml(el.application)}</bpmn:text>\n    </bpmn:textAnnotation>`
+      );
+      poolAssociationLines.push(
+        `    <bpmn:association id="${escapeXml(assocId)}" sourceRef="${escapeXml(annotId)}" targetRef="${escapeXml(el.id)}" associationDirection="None" />`
+      );
+    }
+    const poolAnnotationXml = poolAnnotationLines.length > 0 ? '\n' + poolAnnotationLines.join('\n') : '';
+    const poolAssociationXml = poolAssociationLines.length > 0 ? '\n' + poolAssociationLines.join('\n') : '';
+
     let laneSetXml = '';
     if (lanes.length > 0) {
       const laneLines = lanes.map((lane) => {
@@ -1004,7 +1025,7 @@ function generateWithPools(data) {
 
     return `  <bpmn:process id="${processId}" name="${escapeXml(pool.name || data.name)}" isExecutable="false">${laneSetXml}
 ${elementLines.join('\n')}
-${flowLines.join('\n')}
+${flowLines.join('\n')}${poolAnnotationXml}${poolAssociationXml}
   </bpmn:process>`;
   });
 
@@ -1096,6 +1117,23 @@ ${flowLines.join('\n')}
         `      <bpmndi:BPMNEdge id="${escapeXml(flowId)}_di" bpmnElement="${escapeXml(flowId)}">
 ${waypointXml}
       </bpmndi:BPMNEdge>`
+      );
+    }
+
+    // Annotation shapes and edges for elements with an 'application' property
+    for (const el of poolElements) {
+      if (!el.application) continue;
+      const pos = positions.get(el.id);
+      if (!pos) continue;
+      const annotId = `TextAnnotation_${el.id}`;
+      const assocId = `Association_${el.id}`;
+      const ax = pos.x + pos.width / 2 - LAYOUT.annotationWidth / 2;
+      const ay = pos.y - LAYOUT.annotationHeight - LAYOUT.annotationGap;
+      diagramShapeLines.push(
+        `      <bpmndi:BPMNShape id="${escapeXml(annotId)}_di" bpmnElement="${escapeXml(annotId)}">\n        <dc:Bounds x="${ax}" y="${ay}" width="${LAYOUT.annotationWidth}" height="${LAYOUT.annotationHeight}" />\n      </bpmndi:BPMNShape>`
+      );
+      diagramEdgeLines.push(
+        `      <bpmndi:BPMNEdge id="${escapeXml(assocId)}_di" bpmnElement="${escapeXml(assocId)}">\n        <di:waypoint x="${ax + LAYOUT.annotationWidth / 2}" y="${ay + LAYOUT.annotationHeight}" />\n        <di:waypoint x="${pos.x + pos.width / 2}" y="${pos.y}" />\n      </bpmndi:BPMNEdge>`
       );
     }
   }
@@ -1246,6 +1284,38 @@ ${waypointXml}
       </bpmndi:BPMNEdge>`;
   });
 
+  // Build text annotations and associations for elements with an 'application' property
+  const annotationLines = [];
+  const associationLines = [];
+  const annotationShapeLines = [];
+  const annotationEdgeLines = [];
+  for (const el of elements) {
+    if (!el.application) continue;
+    const pos = positions.get(el.id);
+    if (!pos) continue;
+    const annotId = `TextAnnotation_${el.id}`;
+    const assocId = `Association_${el.id}`;
+    annotationLines.push(
+      `    <bpmn:textAnnotation id="${escapeXml(annotId)}">\n      <bpmn:text>${escapeXml(el.application)}</bpmn:text>\n    </bpmn:textAnnotation>`
+    );
+    associationLines.push(
+      `    <bpmn:association id="${escapeXml(assocId)}" sourceRef="${escapeXml(annotId)}" targetRef="${escapeXml(el.id)}" associationDirection="None" />`
+    );
+    const ax = pos.x + pos.width / 2 - LAYOUT.annotationWidth / 2;
+    const ay = pos.y - LAYOUT.annotationHeight - LAYOUT.annotationGap;
+    annotationShapeLines.push(
+      `      <bpmndi:BPMNShape id="${escapeXml(annotId)}_di" bpmnElement="${escapeXml(annotId)}">\n        <dc:Bounds x="${ax}" y="${ay}" width="${LAYOUT.annotationWidth}" height="${LAYOUT.annotationHeight}" />\n      </bpmndi:BPMNShape>`
+    );
+    annotationEdgeLines.push(
+      `      <bpmndi:BPMNEdge id="${escapeXml(assocId)}_di" bpmnElement="${escapeXml(assocId)}">\n        <di:waypoint x="${ax + LAYOUT.annotationWidth / 2}" y="${ay + LAYOUT.annotationHeight}" />\n        <di:waypoint x="${pos.x + pos.width / 2}" y="${pos.y}" />\n      </bpmndi:BPMNEdge>`
+    );
+  }
+
+  const annotationXml = annotationLines.length > 0 ? '\n' + annotationLines.join('\n') : '';
+  const associationXml = associationLines.length > 0 ? '\n' + associationLines.join('\n') : '';
+  const annotationShapeXml = annotationShapeLines.length > 0 ? '\n' + annotationShapeLines.join('\n') : '';
+  const annotationEdgeXml = annotationEdgeLines.length > 0 ? '\n' + annotationEdgeLines.join('\n') : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
                   xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
@@ -1255,12 +1325,12 @@ ${waypointXml}
                   targetNamespace="http://bpmn.io/schema/bpmn">
   <bpmn:process id="${processId}" name="${escapeXml(data.name)}" isExecutable="false">
 ${elementLines.join('\n')}
-${flowLines.join('\n')}
+${flowLines.join('\n')}${annotationXml}${associationXml}
   </bpmn:process>
   <bpmndi:BPMNDiagram id="BPMNDiagram_1">
     <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="${processId}">
 ${shapeLines.join('\n')}
-${edgeLines.join('\n')}
+${edgeLines.join('\n')}${annotationShapeXml}${annotationEdgeXml}
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>
 </bpmn:definitions>`;
