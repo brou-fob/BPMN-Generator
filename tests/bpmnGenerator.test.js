@@ -1401,6 +1401,179 @@ describe('insertMergeGateways() – non-gateway elements with multiple incoming 
   });
 });
 
+// ---------------------------------------------------------------------------
+// Custom flow waypoints
+// ---------------------------------------------------------------------------
+
+describe('generate() – custom flow waypoints', () => {
+  test('uses custom waypoints from flow.waypoints instead of computing them', () => {
+    const customWaypoints = [
+      { x: 100, y: 200 },
+      { x: 300, y: 200 },
+      { x: 300, y: 400 },
+    ];
+    const data = {
+      ...MINIMAL_DATA,
+      flows: [
+        { id: 'flow1', source: 'start1', target: 'task1', waypoints: customWaypoints },
+        { id: 'flow2', source: 'task1',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    const wp = getEdgeWaypoints(xml, 'flow1');
+    expect(wp).not.toBeNull();
+    expect(wp).toHaveLength(3);
+    expect(wp[0]).toEqual({ x: 100, y: 200 });
+    expect(wp[1]).toEqual({ x: 300, y: 200 });
+    expect(wp[2]).toEqual({ x: 300, y: 400 });
+  });
+
+  test('falls back to computed waypoints when flow.waypoints is absent', () => {
+    const xml = generate(MINIMAL_DATA);
+    const wp = getEdgeWaypoints(xml, 'flow1');
+    expect(wp).not.toBeNull();
+    expect(wp.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('ignores flow.waypoints when it has fewer than 2 points', () => {
+    const data = {
+      ...MINIMAL_DATA,
+      flows: [
+        { id: 'flow1', source: 'start1', target: 'task1', waypoints: [{ x: 50, y: 50 }] },
+        { id: 'flow2', source: 'task1',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    const wp = getEdgeWaypoints(xml, 'flow1');
+    // Falls back to computed waypoints (at least 2 points)
+    expect(wp).not.toBeNull();
+    expect(wp.length).toBeGreaterThanOrEqual(2);
+    // Computed first waypoint will not be x=50
+    expect(wp[0].x).not.toBe(50);
+  });
+
+  test('custom waypoints in pool-based process are used for pool flows', () => {
+    const customWaypoints = [
+      { x: 200, y: 120 },
+      { x: 400, y: 120 },
+      { x: 400, y: 300 },
+      { x: 500, y: 300 },
+    ];
+    const data = {
+      ...POOL_DATA,
+      flows: [
+        { id: 'f1', source: 'start1', target: 'task1' },
+        { id: 'f2', source: 'task1',  target: 'task2', waypoints: customWaypoints },
+        { id: 'f3', source: 'task2',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    const wp = getEdgeWaypoints(xml, 'f2');
+    expect(wp).not.toBeNull();
+    expect(wp).toHaveLength(4);
+    expect(wp[0]).toEqual({ x: 200, y: 120 });
+    expect(wp[3]).toEqual({ x: 500, y: 300 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Custom lane dimensions
+// ---------------------------------------------------------------------------
+
+describe('generate() – custom lane width and height', () => {
+  /**
+   * Extract the dc:Bounds for a given bpmnElement id from the diagram section.
+   */
+  function getShapeBoundsById(xml, elementId) {
+    const escapedId = elementId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(
+      `bpmnElement="${escapedId}"[\\s\\S]*?x="([^"]+)"[\\s\\S]*?y="([^"]+)"[\\s\\S]*?width="([^"]+)"[\\s\\S]*?height="([^"]+)"`
+    );
+    const m = xml.match(re);
+    if (!m) return null;
+    return { x: parseFloat(m[1]), y: parseFloat(m[2]), width: parseFloat(m[3]), height: parseFloat(m[4]) };
+  }
+
+  test('custom lane.width overrides the computed pool content width', () => {
+    const customLaneWidth = 900;
+    const data = {
+      ...POOL_DATA,
+      pools: [
+        {
+          id: 'pool1',
+          name: 'Customer',
+          lanes: [
+            { id: 'lane1', name: 'Sales',      width: customLaneWidth },
+            { id: 'lane2', name: 'Operations', width: customLaneWidth },
+          ],
+        },
+      ],
+    };
+    const xml = generate(data);
+    const lane1Bounds = getShapeBoundsById(xml, 'lane1');
+    expect(lane1Bounds).not.toBeNull();
+    expect(lane1Bounds.width).toBe(customLaneWidth);
+  });
+
+  test('custom lane.height overrides the default lane height', () => {
+    const customHeight = 260;
+    const data = {
+      ...POOL_DATA,
+      pools: [
+        {
+          id: 'pool1',
+          name: 'Customer',
+          lanes: [
+            { id: 'lane1', name: 'Sales',      height: customHeight },
+            { id: 'lane2', name: 'Operations', height: customHeight },
+          ],
+        },
+      ],
+    };
+    const xml = generate(data);
+    const lane1Bounds = getShapeBoundsById(xml, 'lane1');
+    expect(lane1Bounds).not.toBeNull();
+    expect(lane1Bounds.height).toBe(customHeight);
+  });
+
+  test('lanes with different custom heights stack correctly (cumulative Y)', () => {
+    const data = {
+      ...POOL_DATA,
+      pools: [
+        {
+          id: 'pool1',
+          name: 'Customer',
+          lanes: [
+            { id: 'lane1', name: 'Sales',      height: 120 },
+            { id: 'lane2', name: 'Operations', height: 240 },
+          ],
+        },
+      ],
+    };
+    const xml = generate(data);
+    const b1 = getShapeBoundsById(xml, 'lane1');
+    const b2 = getShapeBoundsById(xml, 'lane2');
+    expect(b1).not.toBeNull();
+    expect(b2).not.toBeNull();
+    // lane2 starts immediately after lane1 ends
+    expect(b2.y).toBe(b1.y + b1.height);
+    expect(b1.height).toBe(120);
+    expect(b2.height).toBe(240);
+  });
+
+  test('default lane dimensions are used when no custom dimensions are provided', () => {
+    const xml = generate(POOL_DATA);
+    const lane1Bounds = getShapeBoundsById(xml, 'lane1');
+    const lane2Bounds = getShapeBoundsById(xml, 'lane2');
+    expect(lane1Bounds).not.toBeNull();
+    expect(lane2Bounds).not.toBeNull();
+    // Default height is 180; both lanes should be the same height and stack consecutively
+    expect(lane1Bounds.height).toBe(180);
+    expect(lane2Bounds.height).toBe(180);
+    expect(lane2Bounds.y).toBe(lane1Bounds.y + lane1Bounds.height);
+  });
+});
+
 describe('generate() – auto-gateway for non-gateway elements with multiple incoming flows', () => {
   const NON_GW_MERGE_PROCESS = {
     name: 'Non-Gateway Merge Process',

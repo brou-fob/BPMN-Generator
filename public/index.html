@@ -917,10 +917,13 @@
         return;
       }
       try {
+        // Persist any visual changes (waypoints, lane sizes) made in the modeler
+        // so they survive the diagram regeneration triggered by the type change.
+        const enrichedData = collectModelerState(currentData);
         const res = await fetch('/api/change-type', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ data: currentData, elementId: pendingElementId, newType }),
+          body: JSON.stringify({ data: enrichedData, elementId: pendingElementId, newType }),
         });
         if (!res.ok) {
           showError(await parseErrorResponse(res));
@@ -961,16 +964,19 @@
       clearError();
     });
 
-    /* ── Save changes ─────────────────────────────────────── */
-    saveBtn.addEventListener('click', () => {
-      if (!lastBpmnXml) return;
-      let data;
-      try {
-        data = JSON.parse(inputJson.value);
-      } catch (e) {
-        showError('Ungültiges JSON: ' + e.message);
-        return;
-      }
+    /* ── Collect current visual state from the modeler ───────── */
+    /**
+     * Reads element positions, flow waypoints, and pool/lane dimensions
+     * from the live BPMN modeler and returns an updated copy of `data`.
+     * Call this before re-generating the diagram so that visual changes
+     * made by the user (dragged waypoints, resized lanes) survive the
+     * regeneration.
+     *
+     * @param {object} data - The current process definition JSON.
+     * @returns {object} Updated process definition with visual state merged in.
+     */
+    function collectModelerState(data) {
+      if (!lastBpmnXml) return data;
       try {
         const elementRegistry = modeler.get('elementRegistry');
         const originalIds = new Set(data.elements.map((el) => el.id));
@@ -1028,6 +1034,7 @@
           }
           return null;
         }
+
         const existingFlowsById = new Map(data.flows.map((f) => [f.id, f]));
         const updatedFlows = elementRegistry.filter((el) => el.waypoints).map((conn) => {
           const sourceId = resolveId(conn.source.id);
@@ -1039,9 +1046,49 @@
           const flow = { id: conn.id, source: sourceId, target: targetId };
           const name = (conn.businessObject && conn.businessObject.name) || (existing && existing.name);
           if (name) flow.name = name;
+          // Persist waypoints so that custom flow paths survive re-generation.
+          if (conn.waypoints && conn.waypoints.length >= 2) {
+            flow.waypoints = conn.waypoints.map((wp) => ({ x: Math.round(wp.x), y: Math.round(wp.y) }));
+          }
           return flow;
         }).filter(Boolean);
-        inputJson.value = JSON.stringify({ ...data, elements: updatedElements, flows: updatedFlows }, null, 2);
+
+        // Persist lane dimensions (width / height) so that lanes resized in the
+        // modeler keep their size after the diagram is re-generated.
+        let updatedPools = data.pools;
+        if (data.pools) {
+          updatedPools = data.pools.map((pool) => {
+            const updatedLanes = (pool.lanes || []).map((lane) => {
+              const shape = elementRegistry.get(lane.id);
+              if (shape && shape.width !== undefined && shape.height !== undefined) {
+                return { ...lane, width: Math.round(shape.width), height: Math.round(shape.height) };
+              }
+              return lane;
+            });
+            return { ...pool, lanes: updatedLanes };
+          });
+        }
+
+        const result = { ...data, elements: updatedElements, flows: updatedFlows };
+        if (updatedPools !== undefined) result.pools = updatedPools;
+        return result;
+      } catch {
+        return data; // Fall back gracefully to original data if the modeler state is unavailable
+      }
+    }
+
+    /* ── Save changes ─────────────────────────────────────── */
+    saveBtn.addEventListener('click', () => {
+      if (!lastBpmnXml) return;
+      let data;
+      try {
+        data = JSON.parse(inputJson.value);
+      } catch (e) {
+        showError('Ungültiges JSON: ' + e.message);
+        return;
+      }
+      try {
+        inputJson.value = JSON.stringify(collectModelerState(data), null, 2);
       } catch (e) {
         showError('Fehler beim Speichern der Änderungen: ' + e.message);
       }
@@ -1163,6 +1210,10 @@
         addChatMessage('Fehler: Das aktuelle JSON ist ungültig. Bitte korrigieren Sie es zuerst.', 'error-msg');
         return;
       }
+
+      // Persist any visual changes (waypoints, lane sizes) made in the modeler
+      // so they are part of the context sent to the CoPilot.
+      currentData = collectModelerState(currentData);
 
       addChatMessage(prompt, 'user');
       inputEl.value = '';
