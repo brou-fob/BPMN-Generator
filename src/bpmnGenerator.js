@@ -644,10 +644,17 @@ function computePoolLayout(data) {
     // Content area starts after pool header (and lane header if lanes exist)
     const contentStartX = poolStartX + poolHeaderWidth + (hasLanes ? laneHeaderWidth : 0);
 
-    // Pool/lane dimensions
-    // Lane Y positions
+    // Pool/lane dimensions with support for custom lane heights
+    // Per-lane heights: use lane.height if provided, otherwise the default laneHeight
+    const laneHeights = lanes.map((lane) => (typeof lane.height === 'number' ? lane.height : laneHeight));
+
+    // Lane Y positions (cumulative, allowing each lane to have a different height)
     const laneYMap = new Map();
-    lanes.forEach((lane, i) => laneYMap.set(lane.id, currentY + i * laneHeight));
+    let runningLaneY = currentY;
+    lanes.forEach((lane, i) => {
+      laneYMap.set(lane.id, runningLaneY);
+      runningLaneY += laneHeights[i];
+    });
 
     // Position each element centred vertically within its lane band
     // First pass: Set Y-coordinates and temporary positions
@@ -657,7 +664,9 @@ function computePoolLayout(data) {
       const width = isGateway ? LAYOUT.gatewaySize : isEvent ? LAYOUT.eventSize : LAYOUT.elementWidth;
       const height = isGateway ? LAYOUT.gatewaySize : isEvent ? LAYOUT.eventSize : LAYOUT.elementHeight;
       const bandY = (el.laneRef && laneYMap.has(el.laneRef)) ? laneYMap.get(el.laneRef) : currentY;
-      const y = bandY + laneHeight / 2 - height / 2;
+      const laneIdx = lanes.findIndex((l) => l.id === el.laneRef);
+      const bandHeight = laneIdx >= 0 ? laneHeights[laneIdx] : laneHeight;
+      const y = bandY + bandHeight / 2 - height / 2;
       positions.set(el.id, { x: 0, y, width, height });  // Temporary X
     }
 
@@ -695,16 +704,26 @@ function computePoolLayout(data) {
     for (let c = 0; c <= maxCol; c++) {
       poolContentWidth += columnWidths.get(c) || stepX;
     }
-    const poolWidth = poolHeaderWidth + (hasLanes ? laneHeaderWidth : 0) + poolContentWidth;
-    const poolHeight = hasLanes ? lanes.length * laneHeight : laneHeight;
+    const computedPoolWidth = poolHeaderWidth + (hasLanes ? laneHeaderWidth : 0) + poolContentWidth;
+
+    // Use custom lane width if provided via lane.width (the lane shape width from bpmn-js,
+    // which equals poolWidth - poolHeaderWidth). In bpmn-js, resizing a pool sets all of
+    // its lanes to the same width; we pick the first lane that has a stored width.
+    const laneWithWidth = hasLanes ? lanes.find((l) => typeof l.width === 'number') : null;
+    const customLaneWidth = laneWithWidth ? laneWithWidth.width : null;
+    const poolWidth = customLaneWidth !== null
+      ? poolHeaderWidth + customLaneWidth
+      : computedPoolWidth;
+
+    const poolHeight = hasLanes ? laneHeights.reduce((sum, h) => sum + h, 0) : laneHeight;
 
     // Lane shape descriptors
     const laneShapes = lanes.map((lane, i) => ({
       lane,
       x: poolStartX + poolHeaderWidth,
-      y: currentY + i * laneHeight,
+      y: laneYMap.get(lane.id),
       width: poolWidth - poolHeaderWidth,
-      height: laneHeight,
+      height: laneHeights[i],
     }));
 
     poolShapes.push({
@@ -950,11 +969,17 @@ ${flowLines.join('\n')}
 
     // Flow edges within pool with orthogonal routing
     for (const flow of poolFlows) {
-      const srcPos = positions.get(flow.source);
-      const tgtPos = positions.get(flow.target);
-      if (!srcPos || !tgtPos) continue;
-      const corner = flowCorners.get(flow.id) || 'right';
-      const waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+      let waypoints;
+      if (flow.waypoints && Array.isArray(flow.waypoints) && flow.waypoints.length >= 2) {
+        // Use custom waypoints stored on the flow (e.g. from a previous modeler session)
+        waypoints = flow.waypoints.map((wp) => [wp.x, wp.y]);
+      } else {
+        const srcPos = positions.get(flow.source);
+        const tgtPos = positions.get(flow.target);
+        if (!srcPos || !tgtPos) continue;
+        const corner = flowCorners.get(flow.id) || 'right';
+        waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+      }
       const waypointXml = waypoints
         .map(([x, y]) => `        <di:waypoint x="${x}" y="${y}" />`)
         .join('\n');
@@ -1083,10 +1108,16 @@ function generate(data) {
 
   // Build diagram edges XML with orthogonal routing
   const edgeLines = flows.map((flow) => {
-    const srcPos = positions.get(flow.source);
-    const tgtPos = positions.get(flow.target);
-    const corner = flowCorners.get(flow.id) || 'right';
-    const waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+    let waypoints;
+    if (flow.waypoints && Array.isArray(flow.waypoints) && flow.waypoints.length >= 2) {
+      // Use custom waypoints stored on the flow (e.g. from a previous modeler session)
+      waypoints = flow.waypoints.map((wp) => [wp.x, wp.y]);
+    } else {
+      const srcPos = positions.get(flow.source);
+      const tgtPos = positions.get(flow.target);
+      const corner = flowCorners.get(flow.id) || 'right';
+      waypoints = computeFlowWaypoints(srcPos, tgtPos, corner);
+    }
     const waypointXml = waypoints
       .map(([x, y]) => `        <di:waypoint x="${x}" y="${y}" />`)
       .join('\n');
