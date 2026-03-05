@@ -1759,3 +1759,158 @@ describe('generate() – auto-gateway for non-gateway elements with multiple inc
     expect(xml).toMatch(/<bpmn:parallelGateway[^>]*id="task_target_merge"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// application attribute
+// ---------------------------------------------------------------------------
+
+describe('generate() – application attribute', () => {
+  const APPLICATION_DATA = {
+    name: 'Recipe Process',
+    elements: [
+      { id: 'start1', type: 'startEvent',       name: 'hunger noticed' },
+      { id: 'task1',  type: 'task',             name: 'choose recipe', application: 'Business Central' },
+      { id: 'gw1',    type: 'exclusiveGateway', name: 'desired dish?' },
+      { id: 'end1',   type: 'endEvent' },
+    ],
+    flows: [
+      { id: 'f1', source: 'start1', target: 'task1' },
+      { id: 'f2', source: 'task1',  target: 'gw1'   },
+      { id: 'f3', source: 'gw1',    target: 'end1'  },
+    ],
+  };
+
+  test('generates a bpmn:textAnnotation for the application property', () => {
+    const xml = generate(APPLICATION_DATA);
+    expect(xml).toContain('<bpmn:textAnnotation id="TextAnnotation_task1">');
+    expect(xml).toContain('<bpmn:text>Business Central</bpmn:text>');
+  });
+
+  test('generates a bpmn:association linking the annotation to the element', () => {
+    const xml = generate(APPLICATION_DATA);
+    expect(xml).toContain('id="Association_task1"');
+    expect(xml).toContain('sourceRef="TextAnnotation_task1"');
+    expect(xml).toContain('targetRef="task1"');
+    expect(xml).toContain('associationDirection="None"');
+  });
+
+  test('generates a BPMNShape for the text annotation in the diagram section', () => {
+    const xml = generate(APPLICATION_DATA);
+    expect(xml).toContain('bpmnElement="TextAnnotation_task1"');
+    // Shape should have valid bounds
+    const shapeBoundsRe = /bpmnElement="TextAnnotation_task1"[\s\S]*?x="([^"]+)"[\s\S]*?y="([^"]+)"[\s\S]*?width="([^"]+)"[\s\S]*?height="([^"]+)"/;
+    const m = xml.match(shapeBoundsRe);
+    expect(m).not.toBeNull();
+    expect(parseFloat(m[3])).toBe(100); // annotationWidth
+    expect(parseFloat(m[4])).toBe(50);  // annotationHeight
+  });
+
+  test('positions the annotation above the element it belongs to', () => {
+    const xml = generate(APPLICATION_DATA);
+    // Extract element bounds
+    const elBoundsRe = /bpmnElement="task1"[\s\S]*?x="([^"]+)"[\s\S]*?y="([^"]+)"[\s\S]*?width="([^"]+)"[\s\S]*?height="([^"]+)"/;
+    const elM = xml.match(elBoundsRe);
+    expect(elM).not.toBeNull();
+    const elY = parseFloat(elM[2]);
+
+    const shapeBoundsRe = /bpmnElement="TextAnnotation_task1"[\s\S]*?x="([^"]+)"[\s\S]*?y="([^"]+)"[\s\S]*?width="([^"]+)"[\s\S]*?height="([^"]+)"/;
+    const annotM = xml.match(shapeBoundsRe);
+    expect(annotM).not.toBeNull();
+    const annotY = parseFloat(annotM[2]);
+
+    // Annotation should be above (lower y value) the element
+    expect(annotY).toBeLessThan(elY);
+  });
+
+  test('generates a BPMNEdge for the association with two waypoints', () => {
+    const xml = generate(APPLICATION_DATA);
+    expect(xml).toContain('bpmnElement="Association_task1"');
+    const edgeRe = /bpmnElement="Association_task1"[\s\S]*?<\/bpmndi:BPMNEdge>/;
+    const edgeMatch = xml.match(edgeRe);
+    expect(edgeMatch).not.toBeNull();
+    const waypointMatches = edgeMatch[0].match(/<di:waypoint/g);
+    expect(waypointMatches).toHaveLength(2);
+  });
+
+  test('does not generate annotations for elements without application property', () => {
+    const xml = generate(APPLICATION_DATA);
+    expect(xml).not.toContain('TextAnnotation_start1');
+    expect(xml).not.toContain('TextAnnotation_gw1');
+    expect(xml).not.toContain('TextAnnotation_end1');
+  });
+
+  test('supports any application name string', () => {
+    const data = {
+      name: 'ERP Process',
+      elements: [
+        { id: 'start1', type: 'startEvent' },
+        { id: 'task1',  type: 'task', name: 'Process order', application: 'SAP ERP' },
+        { id: 'end1',   type: 'endEvent' },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'task1' },
+        { id: 'f2', source: 'task1',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:text>SAP ERP</bpmn:text>');
+  });
+
+  test('escapes special XML characters in the application name', () => {
+    const data = {
+      name: 'Test',
+      elements: [
+        { id: 'start1', type: 'startEvent' },
+        { id: 'task1',  type: 'task', application: 'System <A> & "B"' },
+        { id: 'end1',   type: 'endEvent' },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'task1' },
+        { id: 'f2', source: 'task1',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('System &lt;A&gt; &amp; &quot;B&quot;');
+  });
+
+  test('multiple elements can each have an application property', () => {
+    const data = {
+      name: 'Multi App Process',
+      elements: [
+        { id: 'start1', type: 'startEvent' },
+        { id: 'task1',  type: 'task', application: 'App One' },
+        { id: 'task2',  type: 'task', application: 'App Two' },
+        { id: 'end1',   type: 'endEvent' },
+      ],
+      flows: [
+        { id: 'f1', source: 'start1', target: 'task1' },
+        { id: 'f2', source: 'task1',  target: 'task2' },
+        { id: 'f3', source: 'task2',  target: 'end1'  },
+      ],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('TextAnnotation_task1');
+    expect(xml).toContain('<bpmn:text>App One</bpmn:text>');
+    expect(xml).toContain('TextAnnotation_task2');
+    expect(xml).toContain('<bpmn:text>App Two</bpmn:text>');
+    expect(xml).toContain('Association_task1');
+    expect(xml).toContain('Association_task2');
+  });
+
+  test('application attribute works in pool-based processes', () => {
+    const data = {
+      ...POOL_DATA,
+      elements: [
+        { id: 'start1', type: 'startEvent', name: 'Start',  laneRef: 'lane1' },
+        { id: 'task1',  type: 'task',       name: 'Task A', laneRef: 'lane1', application: 'Business Central' },
+        { id: 'task2',  type: 'task',       name: 'Task B', laneRef: 'lane2' },
+        { id: 'end1',   type: 'endEvent',   name: 'End',    laneRef: 'lane2' },
+      ],
+    };
+    const xml = generate(data);
+    expect(xml).toContain('<bpmn:textAnnotation id="TextAnnotation_task1">');
+    expect(xml).toContain('<bpmn:text>Business Central</bpmn:text>');
+    expect(xml).toContain('bpmnElement="TextAnnotation_task1"');
+    expect(xml).toContain('bpmnElement="Association_task1"');
+  });
+});
